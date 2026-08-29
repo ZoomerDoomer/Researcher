@@ -1,5 +1,5 @@
 use bitcoin::hashes::Hash;
-use bitcoin::{Block, BlockHash, Network, OutPoint};
+use bitcoin::{Block, BlockHash, Network, OutPoint, Txid};
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 use researcher_bitcoin_source::{BlockSource, SourceError};
 use researcher_chain_indexer::connect_policy;
@@ -35,6 +35,59 @@ pub struct BlockEventBundle {
     pub created_outpoints: Vec<OutPoint>,
     pub spend_events: Vec<SpendEvent>,
     pub replacement_events: Vec<ReplacementEvent>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+struct StoredTip {
+    height: u32,
+    hash: [u8; 32],
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+struct StoredOutPoint {
+    txid: [u8; 32],
+    vout: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+struct StoredUtxoEntry {
+    value_sat: u64,
+    created_height: u32,
+    created_timestamp: u32,
+    is_coinbase: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+struct StoredSpendEvent {
+    outpoint: StoredOutPoint,
+    spending_txid: [u8; 32],
+    value_sat: u64,
+    created_height: u32,
+    spent_height: u32,
+    created_timestamp: u32,
+    spent_timestamp: u32,
+    is_coinbase: bool,
+    age_blocks: u32,
+    timestamp_delta_seconds: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+struct StoredReplacementEvent {
+    outpoint: StoredOutPoint,
+    replaced: StoredUtxoEntry,
+    replacement: StoredUtxoEntry,
+    replacement_height: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+struct StoredBlockEventBundle {
+    schema_version: u32,
+    height: u32,
+    hash: [u8; 32],
+    prev_hash: [u8; 32],
+    created_outpoints: Vec<StoredOutPoint>,
+    spend_events: Vec<StoredSpendEvent>,
+    replacement_events: Vec<StoredReplacementEvent>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -121,7 +174,7 @@ impl DurableStore {
         let Some(value) = table.get(META_TIP).map_err(storage_error)? else {
             return Ok(None);
         };
-        decode(value.value())
+        decode_tip(value.value()).map(Some)
     }
 
     pub fn utxo(&self, outpoint: &OutPoint) -> Result<Option<UtxoEntry>, StoreError> {
@@ -131,7 +184,7 @@ impl DurableStore {
         let Some(value) = table.get(key.as_slice()).map_err(storage_error)? else {
             return Ok(None);
         };
-        decode(value.value())
+        decode_utxo(value.value()).map(Some)
     }
 
     pub fn block_events(&self, height: u32) -> Result<Option<BlockEventBundle>, StoreError> {
@@ -140,7 +193,7 @@ impl DurableStore {
         let Some(value) = table.get(&height).map_err(storage_error)? else {
             return Ok(None);
         };
-        decode(value.value())
+        decode_bundle(value.value()).map(Some)
     }
 
     pub fn connect_block(
@@ -165,7 +218,7 @@ impl DurableStore {
             for outpoint in preload {
                 let key = outpoint_key(&outpoint);
                 if let Some(value) = table.get(key.as_slice()).map_err(storage_error)? {
-                    state.seed_entry(outpoint, decode(value.value())?)?;
+                    state.seed_entry(outpoint, decode_utxo(value.value())?)?;
                 }
             }
         }
@@ -197,7 +250,7 @@ impl DurableStore {
                 let key = outpoint_key(outpoint);
                 match state.get(outpoint) {
                     Some(entry) => {
-                        let bytes = encode(entry)?;
+                        let bytes = encode_utxo(entry)?;
                         utxos
                             .insert(key.as_slice(), bytes.as_slice())
                             .map_err(storage_error)?;
@@ -214,7 +267,7 @@ impl DurableStore {
             if events.get(&height).map_err(storage_error)?.is_some() {
                 return Err(StoreError::EventAlreadyExists(height));
             }
-            let bytes = encode(&bundle)?;
+            let bytes = encode_bundle(&bundle)?;
             events
                 .insert(&height, bytes.as_slice())
                 .map_err(storage_error)?;
@@ -223,7 +276,7 @@ impl DurableStore {
         {
             let mut meta = write.open_table(META).map_err(storage_error)?;
             let tip = DurableTip { height, hash };
-            let bytes = encode(&tip)?;
+            let bytes = encode_tip(&tip)?;
             meta.insert(META_TIP, bytes.as_slice())
                 .map_err(storage_error)?;
         }
@@ -245,7 +298,7 @@ impl DurableStore {
             let Some(value) = events.get(&tip.height).map_err(storage_error)? else {
                 return Err(StoreError::MissingBlockEvents(tip.height));
             };
-            let bundle: BlockEventBundle = decode(value.value())?;
+            let bundle = decode_bundle(value.value())?;
             if bundle.hash != tip.hash {
                 return Err(StoreError::MissingBlockEvents(tip.height));
             }
@@ -269,7 +322,7 @@ impl DurableStore {
                         is_coinbase: event.is_coinbase,
                     };
                     let key = outpoint_key(&event.outpoint);
-                    let bytes = encode(&entry)?;
+                    let bytes = encode_utxo(&entry)?;
                     utxos
                         .insert(key.as_slice(), bytes.as_slice())
                         .map_err(storage_error)?;
@@ -278,7 +331,7 @@ impl DurableStore {
 
             for replacement in &bundle.replacement_events {
                 let key = outpoint_key(&replacement.outpoint);
-                let bytes = encode(&replacement.replaced)?;
+                let bytes = encode_utxo(&replacement.replaced)?;
                 utxos
                     .insert(key.as_slice(), bytes.as_slice())
                     .map_err(storage_error)?;
@@ -303,7 +356,7 @@ impl DurableStore {
             let mut meta = write.open_table(META).map_err(storage_error)?;
             match previous_tip {
                 Some(previous) => {
-                    let bytes = encode(&previous)?;
+                    let bytes = encode_tip(&previous)?;
                     meta.insert(META_TIP, bytes.as_slice())
                         .map_err(storage_error)?;
                 }
@@ -526,12 +579,165 @@ fn outpoint_key(outpoint: &OutPoint) -> [u8; 36] {
     key
 }
 
-fn encode<T: Serialize>(value: &T) -> Result<Vec<u8>, StoreError> {
+fn encode_tip(value: &DurableTip) -> Result<Vec<u8>, StoreError> {
+    encode_wire(&StoredTip {
+        height: value.height,
+        hash: value.hash.to_byte_array(),
+    })
+}
+
+fn decode_tip(bytes: &[u8]) -> Result<DurableTip, StoreError> {
+    let stored: StoredTip = decode_wire(bytes)?;
+    Ok(DurableTip {
+        height: stored.height,
+        hash: BlockHash::from_byte_array(stored.hash),
+    })
+}
+
+fn encode_utxo(value: &UtxoEntry) -> Result<Vec<u8>, StoreError> {
+    encode_wire(&stored_utxo(value))
+}
+
+fn decode_utxo(bytes: &[u8]) -> Result<UtxoEntry, StoreError> {
+    let stored: StoredUtxoEntry = decode_wire(bytes)?;
+    Ok(utxo_from_stored(stored))
+}
+
+fn encode_bundle(value: &BlockEventBundle) -> Result<Vec<u8>, StoreError> {
+    let stored = StoredBlockEventBundle {
+        schema_version: value.schema_version,
+        height: value.height,
+        hash: value.hash.to_byte_array(),
+        prev_hash: value.prev_hash.to_byte_array(),
+        created_outpoints: value
+            .created_outpoints
+            .iter()
+            .map(stored_outpoint)
+            .collect(),
+        spend_events: value.spend_events.iter().map(stored_spend).collect(),
+        replacement_events: value
+            .replacement_events
+            .iter()
+            .map(stored_replacement)
+            .collect(),
+    };
+    encode_wire(&stored)
+}
+
+fn decode_bundle(bytes: &[u8]) -> Result<BlockEventBundle, StoreError> {
+    let stored: StoredBlockEventBundle = decode_wire(bytes)?;
+    if stored.schema_version != SCHEMA_VERSION {
+        return Err(StoreError::SchemaMismatch {
+            expected: SCHEMA_VERSION,
+            actual: stored.schema_version,
+        });
+    }
+    Ok(BlockEventBundle {
+        schema_version: stored.schema_version,
+        height: stored.height,
+        hash: BlockHash::from_byte_array(stored.hash),
+        prev_hash: BlockHash::from_byte_array(stored.prev_hash),
+        created_outpoints: stored
+            .created_outpoints
+            .into_iter()
+            .map(outpoint_from_stored)
+            .collect(),
+        spend_events: stored
+            .spend_events
+            .into_iter()
+            .map(spend_from_stored)
+            .collect(),
+        replacement_events: stored
+            .replacement_events
+            .into_iter()
+            .map(replacement_from_stored)
+            .collect(),
+    })
+}
+
+fn stored_outpoint(value: &OutPoint) -> StoredOutPoint {
+    StoredOutPoint {
+        txid: value.txid.to_byte_array(),
+        vout: value.vout,
+    }
+}
+
+fn outpoint_from_stored(value: StoredOutPoint) -> OutPoint {
+    OutPoint::new(Txid::from_byte_array(value.txid), value.vout)
+}
+
+fn stored_utxo(value: &UtxoEntry) -> StoredUtxoEntry {
+    StoredUtxoEntry {
+        value_sat: value.value_sat,
+        created_height: value.created_height,
+        created_timestamp: value.created_timestamp,
+        is_coinbase: value.is_coinbase,
+    }
+}
+
+fn utxo_from_stored(value: StoredUtxoEntry) -> UtxoEntry {
+    UtxoEntry {
+        value_sat: value.value_sat,
+        created_height: value.created_height,
+        created_timestamp: value.created_timestamp,
+        is_coinbase: value.is_coinbase,
+    }
+}
+
+fn stored_spend(value: &SpendEvent) -> StoredSpendEvent {
+    StoredSpendEvent {
+        outpoint: stored_outpoint(&value.outpoint),
+        spending_txid: value.spending_txid.to_byte_array(),
+        value_sat: value.value_sat,
+        created_height: value.created_height,
+        spent_height: value.spent_height,
+        created_timestamp: value.created_timestamp,
+        spent_timestamp: value.spent_timestamp,
+        is_coinbase: value.is_coinbase,
+        age_blocks: value.age_blocks,
+        timestamp_delta_seconds: value.timestamp_delta_seconds,
+    }
+}
+
+fn spend_from_stored(value: StoredSpendEvent) -> SpendEvent {
+    SpendEvent {
+        outpoint: outpoint_from_stored(value.outpoint),
+        spending_txid: Txid::from_byte_array(value.spending_txid),
+        value_sat: value.value_sat,
+        created_height: value.created_height,
+        spent_height: value.spent_height,
+        created_timestamp: value.created_timestamp,
+        spent_timestamp: value.spent_timestamp,
+        is_coinbase: value.is_coinbase,
+        age_blocks: value.age_blocks,
+        timestamp_delta_seconds: value.timestamp_delta_seconds,
+    }
+}
+
+fn stored_replacement(value: &ReplacementEvent) -> StoredReplacementEvent {
+    StoredReplacementEvent {
+        outpoint: stored_outpoint(&value.outpoint),
+        replaced: stored_utxo(&value.replaced),
+        replacement: stored_utxo(&value.replacement),
+        replacement_height: value.replacement_height,
+    }
+}
+
+fn replacement_from_stored(value: StoredReplacementEvent) -> ReplacementEvent {
+    ReplacementEvent {
+        outpoint: outpoint_from_stored(value.outpoint),
+        replaced: utxo_from_stored(value.replaced),
+        replacement: utxo_from_stored(value.replacement),
+        replacement_height: value.replacement_height,
+    }
+}
+
+fn encode_wire<T: Serialize>(value: &T) -> Result<Vec<u8>, StoreError> {
     bincode::serde::encode_to_vec(value, bincode::config::standard())
         .map_err(|error| StoreError::Codec(error.to_string()))
 }
 
-fn decode<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, StoreError> {
+fn decode_wire<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, StoreError> {
     let (value, consumed): (T, usize) =
         bincode::serde::decode_from_slice(bytes, bincode::config::standard())
             .map_err(|error| StoreError::Codec(error.to_string()))?;
