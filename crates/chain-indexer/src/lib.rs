@@ -43,6 +43,12 @@ pub enum ChainError {
     #[error("an empty indexer can only start at genesis height 0, got {0}")]
     MustStartAtGenesis(u32),
 
+    #[error("unexpected genesis block {actual}; expected {expected} for configured network")]
+    UnexpectedGenesis {
+        expected: BlockHash,
+        actual: BlockHash,
+    },
+
     #[error("expected height {expected}, got {actual}")]
     HeightDiscontinuity { expected: u32, actual: u32 },
 
@@ -114,6 +120,13 @@ impl ChainIndexer {
                 if height != 0 {
                     return Err(ChainError::MustStartAtGenesis(height));
                 }
+                let expected = bitcoin::blockdata::constants::genesis_block(self.network).block_hash();
+                if hash != expected {
+                    return Err(ChainError::UnexpectedGenesis {
+                        expected,
+                        actual: hash,
+                    });
+                }
             }
             Some(tip) => {
                 let expected = tip
@@ -181,19 +194,11 @@ impl ChainIndexer {
     }
 
     pub fn sync_to_tip<S: BlockSource>(&mut self, source: &S) -> Result<SyncStats, ChainError> {
-        let mut stats = SyncStats::default();
         let target_height = source.tip_height()?;
+        let disconnect_count = self.required_disconnects(source, target_height)?;
 
-        while self.tip.is_some_and(|tip| tip.height > target_height) {
-            self.disconnect_tip()?;
-            stats.disconnected += 1;
-        }
-
-        while let Some(local_tip) = self.tip {
-            let source_hash = source.block_hash(local_tip.height)?;
-            if source_hash == local_tip.hash {
-                break;
-            }
+        let mut stats = SyncStats::default();
+        for _ in 0..disconnect_count {
             self.disconnect_tip()?;
             stats.disconnected += 1;
         }
@@ -218,6 +223,45 @@ impl ChainIndexer {
         }
 
         Ok(stats)
+    }
+
+    fn required_disconnects<S: BlockSource>(
+        &self,
+        source: &S,
+        target_height: u32,
+    ) -> Result<usize, ChainError> {
+        let mut candidate = self.tip;
+        let mut depth = 0usize;
+
+        while let Some(local_tip) = candidate {
+            let matches_source = if local_tip.height <= target_height {
+                source.block_hash(local_tip.height)? == local_tip.hash
+            } else {
+                false
+            };
+
+            if matches_source {
+                return Ok(depth);
+            }
+
+            let Some(applied) = self
+                .undo_history
+                .get(self.undo_history.len().checked_sub(depth + 1).ok_or(
+                    ChainError::ReorgBeyondUndo,
+                )?)
+            else {
+                return Err(ChainError::ReorgBeyondUndo);
+            };
+
+            if applied.tip != local_tip {
+                return Err(ChainError::ReorgBeyondUndo);
+            }
+
+            candidate = applied.previous_tip;
+            depth += 1;
+        }
+
+        Ok(depth)
     }
 }
 
@@ -258,6 +302,7 @@ fn parse_hash(value: &str) -> BlockHash {
 mod tests {
     use super::*;
     use bitcoin::blockdata::constants::genesis_block;
+    use bitcoin::ScriptBuf;
     use researcher_bitcoin_source::BlockSource;
     use std::collections::BTreeMap;
 
@@ -303,6 +348,8 @@ mod tests {
         child.header.prev_blockhash = parent.block_hash();
         child.header.time = parent.header.time.saturating_add(1);
         child.header.nonce = child.header.nonce.wrapping_add(nonce_delta);
+        child.txdata[0].input[0].script_sig =
+            ScriptBuf::from_bytes(nonce_delta.to_le_bytes().to_vec());
         child
     }
 
@@ -314,6 +361,18 @@ mod tests {
         indexer.connect_block(0, &genesis).unwrap();
 
         assert_eq!(indexer.tip().unwrap().height, 0);
+        assert!(indexer.utxo_state().is_empty());
+    }
+
+    #[test]
+    fn wrong_network_genesis_is_rejected_without_mutating_state() {
+        let wrong_genesis = genesis_block(Network::Testnet);
+        let mut indexer = ChainIndexer::new(Network::Bitcoin, 10);
+
+        let err = indexer.connect_block(0, &wrong_genesis).unwrap_err();
+
+        assert!(matches!(err, ChainError::UnexpectedGenesis { .. }));
+        assert!(indexer.tip().is_none());
         assert!(indexer.utxo_state().is_empty());
     }
 
@@ -354,6 +413,26 @@ mod tests {
             }
         );
         assert_eq!(indexer.tip().unwrap().hash, replacement.block_hash());
+    }
+
+    #[test]
+    fn deep_reorg_fails_before_mutating_local_tip() {
+        let genesis = genesis_block(Network::Bitcoin);
+        let block1 = child_of(&genesis, 1);
+        let block2 = child_of(&block1, 2);
+
+        let long_source =
+            MemorySource::from_blocks([(0, genesis.clone()), (1, block1), (2, block2.clone())]);
+        let short_source = MemorySource::from_blocks([(0, genesis)]);
+        let mut indexer = ChainIndexer::new(Network::Bitcoin, 1);
+
+        indexer.sync_to_tip(&long_source).unwrap();
+        let before = indexer.tip();
+        let err = indexer.sync_to_tip(&short_source).unwrap_err();
+
+        assert!(matches!(err, ChainError::ReorgBeyondUndo));
+        assert_eq!(indexer.tip(), before);
+        assert_eq!(indexer.tip().unwrap().hash, block2.block_hash());
     }
 
     #[test]
