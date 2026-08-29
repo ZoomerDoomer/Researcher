@@ -357,14 +357,17 @@ impl DurableStore {
             let mut meta = write.open_table(META).map_err(storage_error)?;
 
             let schema_bytes = SCHEMA_VERSION.to_le_bytes();
-            if let Some(existing) = meta.get(META_SCHEMA).map_err(storage_error)? {
-                let bytes = existing.value();
+            let existing_schema = meta
+                .get(META_SCHEMA)
+                .map_err(storage_error)?
+                .map(|value| value.value().to_vec());
+            if let Some(bytes) = existing_schema {
                 if bytes.len() != 4 {
                     return Err(StoreError::Storage(
                         "invalid schema-version metadata".to_owned(),
                     ));
                 }
-                let actual = u32::from_le_bytes(bytes.try_into().expect("length checked"));
+                let actual = u32::from_le_bytes(bytes.as_slice().try_into().expect("length checked"));
                 if actual != SCHEMA_VERSION {
                     return Err(StoreError::SchemaMismatch {
                         expected: SCHEMA_VERSION,
@@ -378,8 +381,12 @@ impl DurableStore {
 
             let genesis = bitcoin::blockdata::constants::genesis_block(self.network).block_hash();
             let network_bytes = genesis.to_byte_array();
-            if let Some(existing) = meta.get(META_NETWORK).map_err(storage_error)? {
-                if existing.value() != network_bytes.as_slice() {
+            let existing_network = meta
+                .get(META_NETWORK)
+                .map_err(storage_error)?
+                .map(|value| value.value().to_vec());
+            if let Some(bytes) = existing_network {
+                if bytes.as_slice() != network_bytes.as_slice() {
                     return Err(StoreError::NetworkMismatch);
                 }
             } else {
