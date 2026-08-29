@@ -120,7 +120,8 @@ impl ChainIndexer {
                 if height != 0 {
                     return Err(ChainError::MustStartAtGenesis(height));
                 }
-                let expected = bitcoin::blockdata::constants::genesis_block(self.network).block_hash();
+                let expected =
+                    bitcoin::blockdata::constants::genesis_block(self.network).block_hash();
                 if hash != expected {
                     return Err(ChainError::UnexpectedGenesis {
                         expected,
@@ -244,12 +245,12 @@ impl ChainIndexer {
                 return Ok(depth);
             }
 
-            let Some(applied) = self
-                .undo_history
-                .get(self.undo_history.len().checked_sub(depth + 1).ok_or(
-                    ChainError::ReorgBeyondUndo,
-                )?)
-            else {
+            let Some(applied) = self.undo_history.get(
+                self.undo_history
+                    .len()
+                    .checked_sub(depth + 1)
+                    .ok_or(ChainError::ReorgBeyondUndo)?,
+            ) else {
                 return Err(ChainError::ReorgBeyondUndo);
             };
 
