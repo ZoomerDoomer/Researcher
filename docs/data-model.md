@@ -15,7 +15,7 @@ The outpoint `(txid, vout)` is the key. Outputs Bitcoin Core classifies as unspe
 
 ## SpendEvent
 
-Produced when a later transaction consumes an existing UTXO.
+Produced when a later transaction consumes an existing UTXO. This is an observed protocol spend, not proof of a sale or ownership change.
 
 | Field | Meaning |
 | --- | --- |
@@ -49,3 +49,21 @@ A future price join may derive a **last-moved return**, but even that remains a 
 ### BIP30 overwrite note
 
 The two grandfathered historical duplicate-coinbase cases are state overwrites, not spend events. Before research datasets are finalized, those replacements must be explicitly marked or excluded so they cannot be mistaken for censored long-lived UTXOs.
+
+
+## ReplacementEvent
+
+Produced only when the chain policy explicitly allows a still-unspent outpoint to be overwritten. On Bitcoin mainnet this is limited to the two grandfathered BIP30 duplicate-coinbase repeat blocks.
+
+| Field | Meaning |
+| --- | --- |
+| `outpoint` | Outpoint whose key is reused |
+| `replaced` | Metadata of the earlier UTXO that ceases to be addressable |
+| `replacement` | Metadata of the newly created UTXO |
+| `replacement_height` | Height at which replacement occurs |
+
+A replacement is **not** a spend. The earlier UTXO lifecycle is terminated by a historical consensus exception and must be excluded or separately classified in spending/hazard research.
+
+## Genesis
+
+The genesis coinbase output is never inserted into the spendable UTXO state. This matches Bitcoin Core and prevents a permanently unspendable genesis output from contaminating dormant-supply statistics.
