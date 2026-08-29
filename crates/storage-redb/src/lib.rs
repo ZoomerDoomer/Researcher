@@ -367,7 +367,8 @@ impl DurableStore {
                         "invalid schema-version metadata".to_owned(),
                     ));
                 }
-                let actual = u32::from_le_bytes(bytes.as_slice().try_into().expect("length checked"));
+                let actual =
+                    u32::from_le_bytes(bytes.as_slice().try_into().expect("length checked"));
                 if actual != SCHEMA_VERSION {
                     return Err(StoreError::SchemaMismatch {
                         expected: SCHEMA_VERSION,
