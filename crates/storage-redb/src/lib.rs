@@ -509,10 +509,13 @@ impl DurableStore {
         source: &S,
         target_height: u32,
     ) -> Result<u32, StoreError> {
-        let mut candidate = self.tip()?;
+        let Some(mut candidate) = self.tip()? else {
+            return Ok(0);
+        };
         let mut depth = 0u32;
 
-        while let Some(local_tip) = candidate {
+        loop {
+            let local_tip = candidate;
             if local_tip.height <= target_height
                 && source.block_hash(local_tip.height)? == local_tip.hash
             {
@@ -523,18 +526,16 @@ impl DurableStore {
                 return Err(StoreError::MissingBlockEvents(local_tip.height));
             };
 
-            candidate = if local_tip.height == 0 {
-                None
-            } else {
-                Some(DurableTip {
-                    height: local_tip.height - 1,
-                    hash: bundle.prev_hash,
-                })
+            if local_tip.height == 0 {
+                return Err(StoreError::SourceNetworkMismatch);
+            }
+
+            candidate = DurableTip {
+                height: local_tip.height - 1,
+                hash: bundle.prev_hash,
             };
             depth += 1;
         }
-
-        Err(StoreError::SourceNetworkMismatch)
     }
 }
 
