@@ -189,10 +189,7 @@ impl ChainIndexer {
             stats.disconnected += 1;
         }
 
-        loop {
-            let Some(local_tip) = self.tip else {
-                break;
-            };
+        while let Some(local_tip) = self.tip {
             let source_hash = source.block_hash(local_tip.height)?;
             if source_hash == local_tip.hash {
                 break;
