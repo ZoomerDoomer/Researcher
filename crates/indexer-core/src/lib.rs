@@ -1,5 +1,4 @@
 use bitcoin::{OutPoint, Script, Transaction, Txid};
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 const MAX_SCRIPT_SIZE: usize = 10_000;
@@ -23,7 +22,7 @@ pub struct ConnectPolicy {
     pub skip_output_creation: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UtxoEntry {
     pub value_sat: u64,
     pub created_height: u32,
@@ -31,7 +30,7 @@ pub struct UtxoEntry {
     pub is_coinbase: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ReplacementEvent {
     pub outpoint: OutPoint,
     pub replaced: UtxoEntry,
@@ -39,7 +38,7 @@ pub struct ReplacementEvent {
     pub replacement_height: u32,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SpendEvent {
     pub outpoint: OutPoint,
     pub spending_txid: Txid,
