@@ -1,5 +1,11 @@
-use bitcoin::{OutPoint, Transaction, Txid};
+use bitcoin::{OutPoint, Script, Transaction, Txid};
 use std::collections::HashMap;
+
+const MAX_SCRIPT_SIZE: usize = 10_000;
+
+fn is_core_unspendable(script: &Script) -> bool {
+    script.is_op_return() || script.len() > MAX_SCRIPT_SIZE
+}
 use thiserror::Error;
 
 /// Policy switches that must only be enabled by a chain-aware caller.
@@ -17,6 +23,7 @@ pub struct UtxoEntry {
     pub value_sat: u64,
     pub created_height: u32,
     pub created_timestamp: u32,
+    pub is_coinbase: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -28,6 +35,8 @@ pub struct SpendEvent {
     pub spent_height: u32,
     pub created_timestamp: u32,
     pub spent_timestamp: u32,
+    /// Whether the consumed output originated from a coinbase transaction.
+    pub is_coinbase: bool,
     /// Canonical ordering-based age. This is always non-negative for a valid chain.
     pub age_blocks: u32,
     /// Raw block-timestamp delta. Bitcoin block timestamps are not a monotonic clock,
@@ -118,8 +127,9 @@ impl UtxoState {
 
         for tx in transactions {
             let spending_txid = tx.compute_txid();
+            let is_coinbase = tx.is_coinbase();
 
-            if !tx.is_coinbase() {
+            if !is_coinbase {
                 for input in &tx.input {
                     let outpoint = input.previous_output;
                     let Some(entry) = self.utxos.remove(&outpoint) else {
@@ -149,6 +159,7 @@ impl UtxoState {
                         spent_height: height,
                         created_timestamp: entry.created_timestamp,
                         spent_timestamp: timestamp,
+                        is_coinbase: entry.is_coinbase,
                         age_blocks,
                         timestamp_delta_seconds: i64::from(timestamp)
                             - i64::from(entry.created_timestamp),
@@ -157,6 +168,12 @@ impl UtxoState {
             }
 
             for (vout, output) in tx.output.iter().enumerate() {
+                // Match Bitcoin Core chainstate semantics: provably unspendable
+                // outputs are never inserted into the UTXO set.
+                if is_core_unspendable(&output.script_pubkey) {
+                    continue;
+                }
+
                 let outpoint = OutPoint::new(
                     spending_txid,
                     u32::try_from(vout).expect("transaction output count fits in u32"),
@@ -165,6 +182,7 @@ impl UtxoState {
                     value_sat: output.value.to_sat(),
                     created_height: height,
                     created_timestamp: timestamp,
+                    is_coinbase,
                 };
 
                 let previous = self.utxos.insert(outpoint, new_entry);
@@ -220,6 +238,10 @@ mod tests {
     use std::str::FromStr;
 
     fn coinbase(value_sat: u64) -> Transaction {
+        coinbase_with_script(value_sat, ScriptBuf::new())
+    }
+
+    fn coinbase_with_script(value_sat: u64, script_pubkey: ScriptBuf) -> Transaction {
         Transaction {
             version: Version::ONE,
             lock_time: LockTime::ZERO,
@@ -231,7 +253,7 @@ mod tests {
             }],
             output: vec![TxOut {
                 value: Amount::from_sat(value_sat),
-                script_pubkey: ScriptBuf::new(),
+                script_pubkey,
             }],
         }
     }
@@ -281,6 +303,34 @@ mod tests {
         assert_eq!(event.value_sat, 5_000);
         assert_eq!(event.age_blocks, 10);
         assert_eq!(event.timestamp_delta_seconds, 6_000);
+        assert!(event.is_coinbase);
+    }
+
+    #[test]
+    fn op_return_output_is_not_added_to_utxo_state() {
+        let mut state = UtxoState::default();
+        let tx = coinbase_with_script(5_000, ScriptBuf::from_bytes(vec![0x6a]));
+        let outpoint = OutPoint::new(tx.compute_txid(), 0);
+
+        state.connect_block(1, 1_000, &[tx]).unwrap();
+
+        assert!(state.get(&outpoint).is_none());
+        assert!(state.is_empty());
+    }
+
+    #[test]
+    fn oversized_script_output_is_not_added_to_utxo_state() {
+        let mut state = UtxoState::default();
+        let tx = coinbase_with_script(
+            5_000,
+            ScriptBuf::from_bytes(vec![0x51; MAX_SCRIPT_SIZE + 1]),
+        );
+        let outpoint = OutPoint::new(tx.compute_txid(), 0);
+
+        state.connect_block(1, 1_000, &[tx]).unwrap();
+
+        assert!(state.get(&outpoint).is_none());
+        assert!(state.is_empty());
     }
 
     #[test]

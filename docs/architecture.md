@@ -46,7 +46,7 @@ Only after Stage 1 and Stage 2 pass correctness gates:
 
 ## Research boundary
 
-A spend event means only: an existing UTXO was consumed by a transaction.
+A spend event means only: an existing spendable UTXO was consumed by a transaction. The raw state mirrors Bitcoin Core by excluding provably unspendable outputs from the UTXO set.
 
 It does **not** prove:
 
@@ -61,3 +61,7 @@ Those are later heuristic layers and must never be mixed into the raw event laye
 ## Historical edge case: BIP30
 
 Mainnet contains two grandfathered duplicate-coinbase violations at heights 91842 and 91880. A generic duplicate-unspent-outpoint overwrite is unsafe, so the state machine rejects it by default and exposes an explicit policy switch. A future chain-aware adapter must gate that switch by exact mainnet height **and block hash**, never height alone.
+
+## Research integrity note
+
+Coinbase provenance is retained in the raw layer so miner-reward spends can be separated later without reconstructing history. The two BIP30 overwrite exceptions are not ordinary spends and must be marked or excluded in downstream lifecycle analysis.

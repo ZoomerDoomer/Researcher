@@ -6,13 +6,15 @@ Must pass before Bitcoin Core integration:
 
 - every normal input must reference a currently unspent outpoint;
 - consuming an outpoint removes it exactly once;
-- every output creates one outpoint;
+- every spendable output creates one outpoint;
+- `OP_RETURN`-prefixed and >10,000-byte scripts are excluded from the UTXO state, matching Bitcoin Core;
 - transaction order inside a block is respected;
 - a later transaction in the same block can consume an earlier transaction's output;
 - a failed block application leaves state byte-for-byte/logically equivalent to the state before the call;
 - disconnecting a connected block restores the exact previous state;
 - duplicate unspent outpoints fail closed unless an explicit policy allows overwrite;
 - overwrite rollback restores the displaced entry;
+- coinbase provenance survives from UTXO creation into the spend event;
 - raw block timestamps are not assumed monotonic.
 
 ## Gate B — Bitcoin Core integration
