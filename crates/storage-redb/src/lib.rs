@@ -170,12 +170,8 @@ impl DurableStore {
             }
         }
 
-        let connected = state.connect_block_with_policy(
-            height,
-            block.header.time,
-            &block.txdata,
-            policy,
-        )?;
+        let connected =
+            state.connect_block_with_policy(height, block.header.time, &block.txdata, policy)?;
 
         let bundle = BlockEventBundle {
             schema_version: SCHEMA_VERSION,
@@ -321,10 +317,7 @@ impl DurableStore {
         Ok(previous_tip)
     }
 
-    pub fn sync_to_tip<S: BlockSource>(
-        &self,
-        source: &S,
-    ) -> Result<DurableSyncStats, StoreError> {
+    pub fn sync_to_tip<S: BlockSource>(&self, source: &S) -> Result<DurableSyncStats, StoreError> {
         self.verify_source_network(source)?;
         let target_height = source.tip_height()?;
         let disconnect_count = self.required_disconnects(source, target_height)?;
@@ -749,8 +742,7 @@ mod tests {
         let block_b = child_of(&genesis, 2, vec![coinbase(2, 6_000)]);
 
         let source_a = MemorySource::from_blocks([(0, genesis.clone()), (1, block_a)]);
-        let source_b =
-            MemorySource::from_blocks([(0, genesis), (1, block_b.clone())]);
+        let source_b = MemorySource::from_blocks([(0, genesis), (1, block_b.clone())]);
 
         {
             let store = store(&temp);
