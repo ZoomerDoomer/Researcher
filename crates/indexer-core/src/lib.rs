@@ -124,11 +124,7 @@ impl UtxoState {
     ///
     /// This does not validate Bitcoin consensus; callers must only load entries
     /// previously produced by this indexer for the same chain.
-    pub fn seed_entry(
-        &mut self,
-        outpoint: OutPoint,
-        entry: UtxoEntry,
-    ) -> Result<(), ApplyError> {
+    pub fn seed_entry(&mut self, outpoint: OutPoint, entry: UtxoEntry) -> Result<(), ApplyError> {
         if self.utxos.insert(outpoint, entry).is_some() {
             return Err(ApplyError::DuplicateUnspentOutpoint { outpoint });
         }
