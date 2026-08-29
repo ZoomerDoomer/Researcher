@@ -1,5 +1,9 @@
 [workspace]
-members = ["crates/indexer-core"]
+members = [
+    "crates/bitcoin-source",
+    "crates/chain-indexer",
+    "crates/indexer-core",
+]
 resolver = "2"
 
 [workspace.package]
@@ -8,4 +12,5 @@ license = "MIT"
 
 [workspace.dependencies]
 bitcoin = "0.32.102"
+bitcoincore-rpc = "0.19.0"
 thiserror = "2.0"

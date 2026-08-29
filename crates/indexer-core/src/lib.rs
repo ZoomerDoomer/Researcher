@@ -13,9 +13,13 @@ use thiserror::Error;
 pub struct ConnectPolicy {
     /// Allows a newly created output to overwrite an already-unspent outpoint.
     ///
-    /// This is disabled by default. A future mainnet adapter may enable it only
+    /// This is disabled by default. A chain-aware adapter may enable it only
     /// for the two grandfathered BIP30 duplicate-coinbase blocks.
     pub allow_unspent_overwrite: bool,
+    /// Skips creation of every output in this block.
+    ///
+    /// Bitcoin's genesis coinbase is not part of the spendable UTXO set.
+    pub skip_output_creation: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -24,6 +28,14 @@ pub struct UtxoEntry {
     pub created_height: u32,
     pub created_timestamp: u32,
     pub is_coinbase: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReplacementEvent {
+    pub outpoint: OutPoint,
+    pub replaced: UtxoEntry,
+    pub replacement: UtxoEntry,
+    pub replacement_height: u32,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -85,6 +97,7 @@ pub struct BlockUndo {
 #[derive(Clone, Debug)]
 pub struct ConnectedBlock {
     pub spend_events: Vec<SpendEvent>,
+    pub replacement_events: Vec<ReplacementEvent>,
     pub undo: BlockUndo,
 }
 
@@ -124,6 +137,7 @@ impl UtxoState {
     ) -> Result<ConnectedBlock, ApplyError> {
         let mut undo_ops = Vec::new();
         let mut spend_events = Vec::new();
+        let mut replacement_events = Vec::new();
 
         for tx in transactions {
             let spending_txid = tx.compute_txid();
@@ -167,6 +181,10 @@ impl UtxoState {
                 }
             }
 
+            if policy.skip_output_creation {
+                continue;
+            }
+
             for (vout, output) in tx.output.iter().enumerate() {
                 // Match Bitcoin Core chainstate semantics: provably unspendable
                 // outputs are never inserted into the UTXO set.
@@ -185,7 +203,7 @@ impl UtxoState {
                     is_coinbase,
                 };
 
-                let previous = self.utxos.insert(outpoint, new_entry);
+                let previous = self.utxos.insert(outpoint, new_entry.clone());
 
                 match previous {
                     Some(previous_entry) if !policy.allow_unspent_overwrite => {
@@ -193,8 +211,23 @@ impl UtxoState {
                         self.rollback_ops(undo_ops);
                         return Err(ApplyError::DuplicateUnspentOutpoint { outpoint });
                     }
-                    previous => {
-                        undo_ops.push(UndoOp::RevertCreate { outpoint, previous });
+                    Some(previous_entry) => {
+                        replacement_events.push(ReplacementEvent {
+                            outpoint,
+                            replaced: previous_entry.clone(),
+                            replacement: new_entry,
+                            replacement_height: height,
+                        });
+                        undo_ops.push(UndoOp::RevertCreate {
+                            outpoint,
+                            previous: Some(previous_entry),
+                        });
+                    }
+                    None => {
+                        undo_ops.push(UndoOp::RevertCreate {
+                            outpoint,
+                            previous: None,
+                        });
                     }
                 }
             }
@@ -202,6 +235,7 @@ impl UtxoState {
 
         Ok(ConnectedBlock {
             spend_events,
+            replacement_events,
             undo: BlockUndo { ops: undo_ops },
         })
     }
@@ -419,13 +453,38 @@ mod tests {
                 &[duplicate],
                 ConnectPolicy {
                     allow_unspent_overwrite: true,
+                    skip_output_creation: false,
                 },
             )
             .unwrap();
 
         assert_eq!(state.get(&outpoint).unwrap().created_height, 2);
+        assert_eq!(connected.replacement_events.len(), 1);
+        assert_eq!(connected.replacement_events[0].outpoint, outpoint);
+        assert_eq!(connected.replacement_events[0].replaced.created_height, 1);
         state.disconnect_block(connected.undo);
         assert_eq!(state, before);
+    }
+
+    #[test]
+    fn skip_output_creation_keeps_genesis_like_block_out_of_state() {
+        let mut state = UtxoState::default();
+        let funding = coinbase(5_000);
+        let connected = state
+            .connect_block_with_policy(
+                0,
+                1_000,
+                &[funding],
+                ConnectPolicy {
+                    allow_unspent_overwrite: false,
+                    skip_output_creation: true,
+                },
+            )
+            .unwrap();
+
+        assert!(state.is_empty());
+        assert!(connected.spend_events.is_empty());
+        assert!(connected.replacement_events.is_empty());
     }
 
     #[test]

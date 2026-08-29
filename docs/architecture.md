@@ -10,43 +10,61 @@ Build a deterministic Bitcoin UTXO event pipeline that can later support behavio
 validated Bitcoin blocks
         |
         v
-transaction decoder
-        |
-        v
 UTXO state machine
    |            |
    |            +--> reversible block undo
    |
    +--> spend events
+   +--> replacement events (BIP30 only)
 ```
 
 The first milestone intentionally uses an in-memory `HashMap`. This is not the production storage choice. It makes state transitions, atomicity, rollback, and tests easy to validate before introducing persistence.
 
-## Stage 2: Bitcoin Core adapter
+## Stage 2: Bitcoin Core adapter and chain coordination
 
-The next layer will:
+```text
+Bitcoin Core JSON-RPC
+        |
+        v
+BlockSource
+        |
+        v
+ChainIndexer
+  |   continuity: height/hash/prev_hash
+  |   exact chain policy
+  |   bounded undo history
+  v
+UTXO state machine
+```
 
-- read already-validated blocks from a local Bitcoin Core node;
-- verify height/hash/previous-hash continuity;
-- enable the overwrite policy only for the two grandfathered mainnet BIP30 exception blocks;
-- persist checkpoints;
-- reconnect from the last durable checkpoint after restart;
-- handle block disconnect/connect events in reverse/forward order.
+Bitcoin Core remains the consensus validator. This project indexes blocks Bitcoin Core already validated; it does not reimplement proof-of-work, scripts, coinbase maturity, or consensus validation.
 
-Bitcoin Core remains the consensus validator. This project indexes validated chain data; it does not reimplement Bitcoin consensus.
+The adapter uses Core's JSON-RPC API with cookie or user/password authentication. It deliberately starts with RPC rather than direct `blk*.dat` parsing. Binary/direct-file optimization is deferred until profiling proves RPC is a bottleneck.
 
-## Stage 3: scalable storage
+### Chain-specific exceptions
 
-Only after Stage 1 and Stage 2 pass correctness gates:
+- Height 0: the genesis coinbase output is not inserted into the spendable UTXO state.
+- Mainnet 91842 and 91880: duplicate coinbase txids may overwrite still-unspent outpoints, but only when both height and canonical block hash match.
+- The overwritten earlier outputs from heights 91722 and 91812 remain part of the historical state until replacement. Their lifecycle ends via a `ReplacementEvent`, never a `SpendEvent`.
+
+This distinction matters for research: a BIP30 replacement is not holder behavior.
+
+## Stage 3: durable scalable storage
+
+The in-memory state is not suitable for a full mainnet scan. Before that scan:
 
 - replace the in-memory UTXO map with a compact embedded key-value store;
-- write immutable spend-event batches to Parquet;
+- make state changes, event batches, and checkpoint advancement crash-consistent;
+- write immutable spend/replacement-event batches to Parquet;
+- retain enough undo data for ordinary reorgs and fall back to a durable checkpoint for deeper recovery;
 - use DuckDB/Polars/Python for research;
-- keep PostgreSQL, if needed, for small aggregates/metadata rather than the raw chain.
+- keep PostgreSQL, if needed, for small aggregates/metadata rather than raw chain history.
+
+A checkpoint that stores only a block height/hash is **not** sufficient: the corresponding UTXO state and emitted-event position must be durably consistent with it.
 
 ## Research boundary
 
-A spend event means only: an existing spendable UTXO was consumed by a transaction. The raw state mirrors Bitcoin Core by excluding provably unspendable outputs from the UTXO set.
+A spend event means only: an existing spendable UTXO was consumed by a transaction.
 
 It does **not** prove:
 
@@ -58,10 +76,6 @@ It does **not** prove:
 
 Those are later heuristic layers and must never be mixed into the raw event layer.
 
-## Historical edge case: BIP30
+## Timestamp boundary
 
-Mainnet contains two grandfathered duplicate-coinbase violations at heights 91842 and 91880. A generic duplicate-unspent-outpoint overwrite is unsafe, so the state machine rejects it by default and exposes an explicit policy switch. A future chain-aware adapter must gate that switch by exact mainnet height **and block hash**, never height alone.
-
-## Research integrity note
-
-Coinbase provenance is retained in the raw layer so miner-reward spends can be separated later without reconstructing history. The two BIP30 overwrite exceptions are not ordinary spends and must be marked or excluded in downstream lifecycle analysis.
+Raw Bitcoin block timestamps are miner supplied and not a monotonic global clock. `age_blocks` is the canonical ordering measure. Raw timestamp deltas are retained as data, not treated as exact elapsed time.
