@@ -1,16 +1,12 @@
 use bitcoin::{Block, BlockHash, Network};
 use researcher_bitcoin_source::{BlockSource, SourceError};
-use researcher_indexer_core::{
-    BlockUndo, ConnectPolicy, ReplacementEvent, SpendEvent, UtxoState,
-};
+use researcher_indexer_core::{BlockUndo, ConnectPolicy, ReplacementEvent, SpendEvent, UtxoState};
 use std::collections::VecDeque;
 use std::str::FromStr;
 use thiserror::Error;
 
-const BIP30_REPEAT_91842: &str =
-    "00000000000a4d0a398161ffc163c503763b1f4360639393e0e4c8e300e0caec";
-const BIP30_REPEAT_91880: &str =
-    "00000000000743f190a18c5577a3c2d2a1f610ae9601ac046a38084ccb7cd721";
+const BIP30_REPEAT_91842: &str = "00000000000a4d0a398161ffc163c503763b1f4360639393e0e4c8e300e0caec";
+const BIP30_REPEAT_91880: &str = "00000000000743f190a18c5577a3c2d2a1f610ae9601ac046a38084ccb7cd721";
 const BIP30_ORIGINAL_91722: &str =
     "00000000000271a2dc26e7667f8419f2e15416dc6955e5a6c6cdf3f2574dd08e";
 const BIP30_ORIGINAL_91812: &str =
@@ -141,9 +137,12 @@ impl ChainIndexer {
         }
 
         let policy = connect_policy(self.network, height, hash);
-        let connected =
-            self.state
-                .connect_block_with_policy(height, block.header.time, &block.txdata, policy)?;
+        let connected = self.state.connect_block_with_policy(
+            height,
+            block.header.time,
+            &block.txdata,
+            policy,
+        )?;
 
         let previous_tip = self.tip;
         let tip = ChainTip { height, hash };
@@ -369,15 +368,7 @@ mod tests {
         assert!(!is_bip30_repeat(Network::Bitcoin, 91_843, repeat_91842));
         assert!(!is_bip30_repeat(Network::Testnet, 91_842, repeat_91842));
 
-        assert!(is_bip30_original(
-            Network::Bitcoin,
-            91_722,
-            original_91722
-        ));
-        assert!(!is_bip30_original(
-            Network::Bitcoin,
-            91_723,
-            original_91722
-        ));
+        assert!(is_bip30_original(Network::Bitcoin, 91_722, original_91722));
+        assert!(!is_bip30_original(Network::Bitcoin, 91_723, original_91722));
     }
 }
