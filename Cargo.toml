@@ -1,0 +1,11 @@
+[workspace]
+members = ["crates/indexer-core"]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+
+[workspace.dependencies]
+bitcoin = "0.32.102"
+thiserror = "2.0"
