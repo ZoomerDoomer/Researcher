@@ -145,7 +145,7 @@ fn parse_args(args: Vec<String>) -> Result<Config, String> {
     let mut target_height = None;
 
     while let Some(flag) = args.next() {
-        let value = || {
+        let mut value = || {
             args.next()
                 .ok_or_else(|| format!("missing value for {flag}"))
         };
