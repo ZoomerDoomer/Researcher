@@ -6,4 +6,5 @@ license.workspace = true
 
 [dependencies]
 bitcoin.workspace = true
+serde.workspace = true
 thiserror.workspace = true

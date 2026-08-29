@@ -39,14 +39,17 @@ Durable restart/checkpoint guarantees move to Gate C because a height/hash check
 
 Must pass before full-chain production indexing:
 
-- resident memory does not grow with total processed history;
-- UTXO storage grows primarily with the live UTXO set;
-- spend and replacement events are appended in bounded batches;
-- state mutation, event durability, and checkpoint advancement are crash-consistent;
+- the production UTXO set lives in an embedded ACID store rather than a process-wide in-memory map;
+- only UTXOs touched or potentially collided with by the current block are preloaded into memory;
+- UTXO mutation, canonical block events, and tip advancement commit in one database transaction;
+- reopening the database restores the same tip, UTXOs, and block-event history;
+- disconnecting a persisted block exactly reverses its durable UTXO effects;
+- same-block temporary outputs are not resurrected during durable rollback;
+- a failed block cannot advance the tip or leave committed partial UTXO/event changes;
+- durable sync can reconcile a reorg after process restart;
 - restart does not require rescanning from Genesis;
-- simulated crash/restart cannot duplicate or lose committed events;
-- a full dataset can be queried without loading it fully into RAM;
-- dependency/toolchain versions are pinned for reproducible research runs.
+- Parquet remains an export layer and cannot become more authoritative than the committed event store;
+- dependency/toolchain versions are pinned before the full mainnet run.
 
 ## Research gate
 

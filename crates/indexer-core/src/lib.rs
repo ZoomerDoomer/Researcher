@@ -1,10 +1,11 @@
 use bitcoin::{OutPoint, Script, Transaction, Txid};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 const MAX_SCRIPT_SIZE: usize = 10_000;
 
-fn is_core_unspendable(script: &Script) -> bool {
-    script.is_op_return() || script.len() > MAX_SCRIPT_SIZE
+pub fn is_utxo_candidate(script: &Script) -> bool {
+    !script.is_op_return() && script.len() <= MAX_SCRIPT_SIZE
 }
 use thiserror::Error;
 
@@ -22,7 +23,7 @@ pub struct ConnectPolicy {
     pub skip_output_creation: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UtxoEntry {
     pub value_sat: u64,
     pub created_height: u32,
@@ -30,7 +31,7 @@ pub struct UtxoEntry {
     pub is_coinbase: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReplacementEvent {
     pub outpoint: OutPoint,
     pub replaced: UtxoEntry,
@@ -38,7 +39,7 @@ pub struct ReplacementEvent {
     pub replacement_height: u32,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SpendEvent {
     pub outpoint: OutPoint,
     pub spending_txid: Txid,
@@ -119,6 +120,21 @@ impl UtxoState {
         self.utxos.get(outpoint)
     }
 
+    /// Seeds trusted state loaded from durable storage.
+    ///
+    /// This does not validate Bitcoin consensus; callers must only load entries
+    /// previously produced by this indexer for the same chain.
+    pub fn seed_entry(
+        &mut self,
+        outpoint: OutPoint,
+        entry: UtxoEntry,
+    ) -> Result<(), ApplyError> {
+        if self.utxos.insert(outpoint, entry).is_some() {
+            return Err(ApplyError::DuplicateUnspentOutpoint { outpoint });
+        }
+        Ok(())
+    }
+
     pub fn connect_block(
         &mut self,
         height: u32,
@@ -188,7 +204,7 @@ impl UtxoState {
             for (vout, output) in tx.output.iter().enumerate() {
                 // Match Bitcoin Core chainstate semantics: provably unspendable
                 // outputs are never inserted into the UTXO set.
-                if is_core_unspendable(&output.script_pubkey) {
+                if !is_utxo_candidate(&output.script_pubkey) {
                     continue;
                 }
 

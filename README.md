@@ -4,7 +4,7 @@ Bitcoin on-chain research infrastructure focused on building a correct raw UTXO 
 
 ## Current milestone
 
-Stages 1 and the first half of Stage 2 are implemented:
+Stages 1–3 now have an implemented correctness path:
 
 - deterministic Rust UTXO state machine;
 - raw spend events without labeling them as sales;
@@ -15,13 +15,15 @@ Stages 1 and the first half of Stage 2 are implemented:
 - chain-aware height/hash/previous-hash checks;
 - Bitcoin Core JSON-RPC block source abstraction;
 - shallow reorg reconciliation;
-- exact mainnet BIP30 policy by height and block hash.
+- exact mainnet BIP30 policy by height and block hash;
+- redb-backed durable UTXO state;
+- atomic per-block event + UTXO + tip commits;
+- durable block rollback and post-restart reorg reconciliation.
 
 It intentionally does **not** yet:
 
-- persist the production UTXO set;
-- write Parquet;
-- claim crash-safe resume;
+- export committed events to Parquet;
+- run a full mainnet performance/soak test;
 - track the mempool;
 - infer addresses/entities/exchanges;
 - label spends as sales or realized profit.
@@ -50,6 +52,7 @@ research hypotheses
 crates/indexer-core/       deterministic UTXO state machine
 crates/bitcoin-source/     Bitcoin Core JSON-RPC block source
 crates/chain-indexer/      chain continuity + reorg coordination
+crates/storage-redb/        durable ACID UTXO/event/tip storage
 docs/architecture.md       staged architecture and boundaries
 docs/data-model.md         raw event semantics
 docs/acceptance-criteria.md correctness/scaling gates
@@ -66,4 +69,4 @@ cargo test --workspace --all-features
 
 ## Next milestone
 
-Add durable UTXO/event storage and an atomic checkpoint protocol. A full mainnet scan should not begin until that layer passes crash/restart tests.
+Finish the production CLI and bounded Parquet export, pin the exact toolchain/dependency lockfile, then run a small real Bitcoin Core smoke scan. The 700+ GB full-mainnet run remains gated on that smoke test.

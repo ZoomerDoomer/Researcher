@@ -51,16 +51,17 @@ This distinction matters for research: a BIP30 replacement is not holder behavio
 
 ## Stage 3: durable scalable storage
 
-The in-memory state is not suitable for a full mainnet scan. Before that scan:
+The durable layer uses redb as the primary state/event store. For every connected block, one ACID transaction commits:
 
-- replace the in-memory UTXO map with a compact embedded key-value store;
-- make state changes, event batches, and checkpoint advancement crash-consistent;
-- write immutable spend/replacement-event batches to Parquet;
-- retain enough undo data for ordinary reorgs and fall back to a durable checkpoint for deeper recovery;
-- use DuckDB/Polars/Python for research;
-- keep PostgreSQL, if needed, for small aggregates/metadata rather than raw chain history.
+- live UTXO mutations;
+- the canonical per-block spend/replacement event bundle;
+- the canonical chain tip.
 
-A checkpoint that stores only a block height/hash is **not** sufficient: the corresponding UTXO state and emitted-event position must be durably consistent with it.
+No checkpoint can therefore get ahead of either the UTXO state or its events. The full historical UTXO set is never loaded into RAM: only outpoints touched or potentially collided with by the current block are preloaded into the already-tested state machine.
+
+Per-block event bundles also form durable undo data. A disconnect removes outputs created by the block, restores older UTXOs consumed by the block, restores BIP30-replaced entries, deletes the old canonical event bundle, and moves the tip back in the same transaction.
+
+Parquet is deliberately downstream. It will be exported from committed block-event bundles for DuckDB/Polars/Python research rather than serving as the transactional source of truth.
 
 ## Research boundary
 
