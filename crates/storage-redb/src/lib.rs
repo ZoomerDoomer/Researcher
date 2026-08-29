@@ -982,11 +982,7 @@ mod tests {
         let genesis = genesis_block(Network::Bitcoin);
         let block1 = child_of(&genesis, 1, vec![coinbase(1, 5_000)]);
         let block2 = child_of(&block1, 2, vec![coinbase(2, 5_000)]);
-        let source = MemorySource::from_blocks([
-            (0, genesis),
-            (1, block1),
-            (2, block2),
-        ]);
+        let source = MemorySource::from_blocks([(0, genesis), (1, block1), (2, block2)]);
 
         let store = store(&temp);
         let stats = store.sync_to_height(&source, 1).unwrap();

@@ -113,8 +113,9 @@ fn build_source(config: &Config) -> Result<BitcoinCoreRpcSource, String> {
         config.rpc_user.as_ref(),
         config.rpc_password.as_ref(),
     ) {
-        (Some(cookie), None, None) => BitcoinCoreRpcSource::cookie(&config.rpc_url, cookie)
-            .map_err(|error| error.to_string()),
+        (Some(cookie), None, None) => {
+            BitcoinCoreRpcSource::cookie(&config.rpc_url, cookie).map_err(|error| error.to_string())
+        }
         (None, Some(user), Some(password)) => {
             BitcoinCoreRpcSource::user_pass(&config.rpc_url, user, password)
                 .map_err(|error| error.to_string())
