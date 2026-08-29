@@ -149,6 +149,9 @@ pub enum StoreError {
 
     #[error("configured source does not share the configured network genesis")]
     SourceNetworkMismatch,
+
+    #[error("requested target height {requested} exceeds source tip {source_tip}")]
+    TargetAboveSourceTip { requested: u32, source_tip: u32 },
 }
 
 pub struct DurableStore {
@@ -373,6 +376,30 @@ impl DurableStore {
     pub fn sync_to_tip<S: BlockSource>(&self, source: &S) -> Result<DurableSyncStats, StoreError> {
         self.verify_source_network(source)?;
         let target_height = source.tip_height()?;
+        self.sync_to_target(source, target_height)
+    }
+
+    pub fn sync_to_height<S: BlockSource>(
+        &self,
+        source: &S,
+        target_height: u32,
+    ) -> Result<DurableSyncStats, StoreError> {
+        self.verify_source_network(source)?;
+        let source_tip = source.tip_height()?;
+        if target_height > source_tip {
+            return Err(StoreError::TargetAboveSourceTip {
+                requested: target_height,
+                source_tip,
+            });
+        }
+        self.sync_to_target(source, target_height)
+    }
+
+    fn sync_to_target<S: BlockSource>(
+        &self,
+        source: &S,
+        target_height: u32,
+    ) -> Result<DurableSyncStats, StoreError> {
         let disconnect_count = self.required_disconnects(source, target_height)?;
 
         let mut stats = DurableSyncStats::default();
@@ -947,6 +974,37 @@ mod tests {
         assert_eq!(store.tip().unwrap(), before);
         assert!(store.utxo(&funding_outpoint).unwrap().is_some());
         assert!(store.block_events(2).unwrap().is_none());
+    }
+
+    #[test]
+    fn bounded_sync_stops_at_requested_height_and_rejects_unavailable_target() {
+        let temp = TempDir::new().unwrap();
+        let genesis = genesis_block(Network::Bitcoin);
+        let block1 = child_of(&genesis, 1, vec![coinbase(1, 5_000)]);
+        let block2 = child_of(&block1, 2, vec![coinbase(2, 5_000)]);
+        let source = MemorySource::from_blocks([
+            (0, genesis),
+            (1, block1),
+            (2, block2),
+        ]);
+
+        let store = store(&temp);
+        let stats = store.sync_to_height(&source, 1).unwrap();
+
+        assert_eq!(stats.connected, 2);
+        assert_eq!(store.tip().unwrap().unwrap().height, 1);
+        assert!(store.block_events(2).unwrap().is_none());
+
+        let before = store.tip().unwrap();
+        let err = store.sync_to_height(&source, 3).unwrap_err();
+        assert!(matches!(
+            err,
+            StoreError::TargetAboveSourceTip {
+                requested: 3,
+                source_tip: 2
+            }
+        ));
+        assert_eq!(store.tip().unwrap(), before);
     }
 
     #[test]

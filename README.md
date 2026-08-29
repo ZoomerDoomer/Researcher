@@ -18,7 +18,9 @@ Stages 1–3 now have an implemented correctness path:
 - exact mainnet BIP30 policy by height and block hash;
 - redb-backed durable UTXO state;
 - atomic per-block event + UTXO + tip commits;
-- durable block rollback and post-restart reorg reconciliation.
+- durable block rollback and post-restart reorg reconciliation;
+- bounded sync to an explicit target height;
+- minimal `researcher sync/status` CLI for the real-node smoke test.
 
 It intentionally does **not** yet:
 
@@ -52,7 +54,8 @@ research hypotheses
 crates/indexer-core/       deterministic UTXO state machine
 crates/bitcoin-source/     Bitcoin Core JSON-RPC block source
 crates/chain-indexer/      chain continuity + reorg coordination
-crates/storage-redb/        durable ACID UTXO/event/tip storage
+crates/storage-redb/       durable ACID UTXO/event/tip storage
+crates/researcher-cli/     bounded sync/status executable
 docs/architecture.md       staged architecture and boundaries
 docs/data-model.md         raw event semantics
 docs/acceptance-criteria.md correctness/scaling gates
@@ -67,6 +70,25 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
 ```
 
+### Inspect local research state
+
+```bash
+cargo run -p researcher -- status --db researcher.redb
+```
+
+### Bounded Bitcoin Core smoke sync
+
+Cookie authentication:
+
+```bash
+cargo run -p researcher -- sync \
+  --cookie-file /path/to/.cookie \
+  --target-height 1000 \
+  --db researcher.redb
+```
+
+The explicit target height is intentional: the first real-node run should validate a small deterministic range before any full-chain scan is attempted.
+
 ## Next milestone
 
-Finish the production CLI and bounded Parquet export, pin the exact toolchain/dependency lockfile, then run a small real Bitcoin Core smoke scan. The 700+ GB full-mainnet run remains gated on that smoke test.
+Pin the generated `Cargo.lock`, run the bounded CLI against a real local Bitcoin Core node, and only then decide whether profiling justifies block-source optimizations or Parquet export work.

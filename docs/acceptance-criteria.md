@@ -49,7 +49,9 @@ Must pass before full-chain production indexing:
 - durable sync can reconcile a reorg after process restart;
 - restart does not require rescanning from Genesis;
 - Parquet remains an export layer and cannot become more authoritative than the committed event store;
-- dependency/toolchain versions are pinned before the full mainnet run.
+- dependency/toolchain versions are pinned before the full mainnet run;
+- a bounded sync stops exactly at the requested canonical height and fails if the node has not reached that height;
+- the CLI cannot accidentally start a sync without explicit RPC authentication.
 
 ## Research gate
 

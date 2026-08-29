@@ -3,6 +3,7 @@ members = [
     "crates/bitcoin-source",
     "crates/chain-indexer",
     "crates/indexer-core",
+    "crates/researcher-cli",
     "crates/storage-redb",
 ]
 resolver = "2"

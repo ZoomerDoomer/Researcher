@@ -2,6 +2,7 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
 
 permissions:
@@ -12,11 +13,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - name: Install Rust stable
+      - name: Install pinned Rust
+        run: rustup toolchain install 1.98.0 --profile minimal --component rustfmt,clippy
+      - name: Generate dependency lockfile
         run: |
-          rustup update stable
-          rustup default stable
-          rustup component add rustfmt clippy
+          cargo generate-lockfile
+          echo "CARGO_LOCK_BEGIN"
+          base64 -w0 Cargo.lock
+          echo
+          echo "CARGO_LOCK_END"
       - name: Format
         run: cargo fmt --all -- --check
       - name: Clippy
