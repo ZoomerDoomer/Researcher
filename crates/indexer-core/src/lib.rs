@@ -340,7 +340,7 @@ mod tests {
     fn duplicate_unspent_outpoint_is_rejected_by_default() {
         let mut state = UtxoState::default();
         let duplicate = coinbase(5_000);
-        state.connect_block(1, 1_000, &[duplicate.clone()]).unwrap();
+        state.connect_block(1, 1_000, std::slice::from_ref(&duplicate)).unwrap();
         let before = state.clone();
 
         let err = state.connect_block(2, 2_000, &[duplicate]).unwrap_err();
@@ -355,7 +355,7 @@ mod tests {
         let duplicate = coinbase(5_000);
         let outpoint = OutPoint::new(duplicate.compute_txid(), 0);
 
-        state.connect_block(1, 1_000, &[duplicate.clone()]).unwrap();
+        state.connect_block(1, 1_000, std::slice::from_ref(&duplicate)).unwrap();
         let before = state.clone();
 
         let connected = state
