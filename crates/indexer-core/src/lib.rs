@@ -103,12 +103,7 @@ impl UtxoState {
         timestamp: u32,
         transactions: &[Transaction],
     ) -> Result<ConnectedBlock, ApplyError> {
-        self.connect_block_with_policy(
-            height,
-            timestamp,
-            transactions,
-            ConnectPolicy::default(),
-        )
+        self.connect_block_with_policy(height, timestamp, transactions, ConnectPolicy::default())
     }
 
     pub fn connect_block_with_policy(
@@ -174,14 +169,16 @@ impl UtxoState {
 
                 let previous = self.utxos.insert(outpoint, new_entry);
 
-                if previous.is_some() && !policy.allow_unspent_overwrite {
-                    self.utxos
-                        .insert(outpoint, previous.expect("checked as some"));
-                    self.rollback_ops(undo_ops);
-                    return Err(ApplyError::DuplicateUnspentOutpoint { outpoint });
+                match previous {
+                    Some(previous_entry) if !policy.allow_unspent_overwrite => {
+                        self.utxos.insert(outpoint, previous_entry);
+                        self.rollback_ops(undo_ops);
+                        return Err(ApplyError::DuplicateUnspentOutpoint { outpoint });
+                    }
+                    previous => {
+                        undo_ops.push(UndoOp::RevertCreate { outpoint, previous });
+                    }
                 }
-
-                undo_ops.push(UndoOp::RevertCreate { outpoint, previous });
             }
         }
 
@@ -218,9 +215,7 @@ impl UtxoState {
 mod tests {
     use super::*;
     use bitcoin::{
-        absolute::LockTime,
-        transaction::Version,
-        Amount, ScriptBuf, Sequence, TxIn, TxOut, Witness,
+        absolute::LockTime, transaction::Version, Amount, ScriptBuf, Sequence, TxIn, TxOut, Witness,
     };
     use std::str::FromStr;
 
@@ -263,10 +258,9 @@ mod tests {
     }
 
     fn unknown_outpoint() -> OutPoint {
-        let txid = Txid::from_str(
-            "0000000000000000000000000000000000000000000000000000000000000001",
-        )
-        .expect("valid txid");
+        let txid =
+            Txid::from_str("0000000000000000000000000000000000000000000000000000000000000001")
+                .expect("valid txid");
         OutPoint::new(txid, 0)
     }
 
