@@ -20,13 +20,13 @@ const META_SCHEMA: &str = "schema_version";
 const META_NETWORK: &str = "network_genesis";
 const META_TIP: &str = "tip";
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DurableTip {
     pub height: u32,
     pub hash: BlockHash,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BlockEventBundle {
     pub schema_version: u32,
     pub height: u32,
