@@ -67,8 +67,8 @@ docs/acceptance-criteria.md correctness/scaling gates
 
 ```bash
 cargo fmt --all -- --check
-cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo test --workspace --all-features
+cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
+cargo test --locked --workspace --all-features
 ```
 
 ### Inspect local research state
@@ -97,7 +97,7 @@ cargo run -p researcher -- sync \
   --db researcher.redb
 ```
 
-The explicit target height is intentional: the first real-node run should validate a small deterministic range before any full-chain scan is attempted.
+The explicit target height is intentional: the first real-node run should validate a small deterministic range before any full-chain scan is attempted. See `docs/real-node-smoke-test.md` for the exact acceptance sequence.
 
 ## Next milestone
 
