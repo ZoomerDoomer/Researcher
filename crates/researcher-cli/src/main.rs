@@ -244,12 +244,20 @@ fn validate_node_for_sync(
         ));
     }
     if status.pruned {
-        return Err(format!(
-            "Bitcoin Core is pruned (prune_height={}); this research index requires historical blocks from Genesis",
-            status
-                .prune_height
-                .map_or_else(|| "unknown".to_owned(), |height| height.to_string())
-        ));
+        match status.prune_height {
+            Some(0) => {}
+            Some(height) => {
+                return Err(format!(
+                    "Bitcoin Core has already pruned historical blocks below height {height}; a Genesis-based scan can no longer start from this node"
+                ));
+            }
+            None => {
+                return Err(
+                    "Bitcoin Core reports pruning enabled but no prune height; refusing to assume Genesis block data is still available"
+                        .to_owned(),
+                );
+            }
+        }
     }
 
     match target_height {
@@ -428,14 +436,28 @@ mod tests {
             .unwrap_err()
             .contains("network mismatch"));
 
-        let pruned = NodeStatus {
+        let pruning_enabled_but_not_started = NodeStatus {
+            pruned: true,
+            prune_height: Some(0),
+            ..ready
+        };
+        assert!(
+            validate_node_for_sync(
+                pruning_enabled_but_not_started,
+                Network::Bitcoin,
+                Some(1_000)
+            )
+            .is_ok()
+        );
+
+        let already_pruned = NodeStatus {
             pruned: true,
             prune_height: Some(800_000),
             ..ready
         };
-        assert!(validate_node_for_sync(pruned, Network::Bitcoin, Some(900_000))
+        assert!(validate_node_for_sync(already_pruned, Network::Bitcoin, Some(900_000))
             .unwrap_err()
-            .contains("requires historical blocks from Genesis"));
+            .contains("already pruned historical blocks"));
     }
 
     #[test]

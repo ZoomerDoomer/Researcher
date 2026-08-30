@@ -21,8 +21,9 @@ Stages 1–3 now have an implemented correctness path:
 - durable block rollback and post-restart reorg reconciliation;
 - bounded sync to an explicit target height;
 - minimal `researcher doctor/sync/status` CLI for the real-node smoke test;
-- preflight rejection of wrong-network and pruned Core nodes;
-- bounded smoke sync during IBD once the requested historical height is locally validated.
+- preflight rejection of wrong-network nodes and nodes that have already discarded Genesis-era block data;
+- bounded smoke sync during IBD once the requested historical height is locally validated;
+- pruning may be configured for the smoke test as long as actual historical pruning has not started yet.
 
 It intentionally does **not** yet:
 
@@ -86,7 +87,7 @@ cargo run --locked -p researcher -- doctor \
   --target-height 1000
 ```
 
-For the first bounded smoke test the node does **not** need to be fully synced: it only needs to be non-pruned and to have validated at least the requested target height. A later unbounded Genesis-to-tip run still requires IBD to finish.
+For the first bounded smoke test the node does **not** need to be fully synced. It only needs to have validated at least the requested target height and still retain Genesis-era block data. Pruning may be configured; it becomes a blocker only after Core has actually deleted the old blocks we need.
 
 ### Bounded Bitcoin Core smoke sync
 
@@ -103,4 +104,4 @@ The explicit target height is intentional: the first real-node run should valida
 
 ## Next milestone
 
-Run `doctor` and then the bounded CLI against a real local archival Bitcoin Core node. Only after that smoke test should profiling decide whether block-source optimization or Parquet export work is justified.
+Run `doctor` and then the bounded CLI against the local Bitcoin Core node while Genesis-era blocks are still retained. Only after that smoke test should profiling decide whether block-source optimization or Parquet export work is justified.

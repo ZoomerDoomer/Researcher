@@ -7,7 +7,7 @@ This is the first step that requires access to a real Bitcoin Core node.
 The node must:
 
 - be on the intended network;
-- be non-pruned so historical blocks remain available from Genesis;
+- still retain historical blocks from Genesis (pruning may be configured but must not have deleted them yet);
 - have validated at least through the requested smoke-test target height;
 - expose JSON-RPC locally or over a trusted connection.
 
@@ -29,7 +29,7 @@ Expected final line:
 sync_ready=true
 ```
 
-Do not continue if the command reports a network mismatch, pruning, or that the node has not yet validated through height 1000.
+Do not continue if the command reports a network mismatch, that Genesis-era blocks have already been pruned, or that the node has not yet validated through height 1000.
 
 ## 2. First bounded scan
 

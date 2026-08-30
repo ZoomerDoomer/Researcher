@@ -55,7 +55,8 @@ Must pass before full-chain production indexing:
 - sync refuses a Core node on the wrong network;
 - bounded sync may run during Initial Block Download only if the node has already validated through the requested target height;
 - unbounded sync refuses a node still in Initial Block Download;
-- sync refuses a pruned node before the research database is mutated.
+- bounded sync may use a node with pruning configured only while `prune_height == 0`, meaning Genesis-era block data has not yet been discarded;
+- sync refuses a node once historical pruning has advanced above Genesis, before the research database is mutated.
 
 ## Research gate
 
