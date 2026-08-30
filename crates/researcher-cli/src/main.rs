@@ -420,9 +420,11 @@ mod tests {
             blocks: 999,
             ..ready
         };
-        assert!(validate_node_for_sync(too_early, Network::Bitcoin, Some(1_000))
-            .unwrap_err()
-            .contains("only validated through block 999"));
+        assert!(
+            validate_node_for_sync(too_early, Network::Bitcoin, Some(1_000))
+                .unwrap_err()
+                .contains("only validated through block 999")
+        );
 
         assert!(validate_node_for_sync(ready, Network::Bitcoin, None)
             .unwrap_err()
@@ -432,32 +434,34 @@ mod tests {
             network: Network::Testnet,
             ..ready
         };
-        assert!(validate_node_for_sync(wrong_network, Network::Bitcoin, Some(1_000))
-            .unwrap_err()
-            .contains("network mismatch"));
+        assert!(
+            validate_node_for_sync(wrong_network, Network::Bitcoin, Some(1_000))
+                .unwrap_err()
+                .contains("network mismatch")
+        );
 
         let pruning_enabled_but_not_started = NodeStatus {
             pruned: true,
             prune_height: Some(0),
             ..ready
         };
-        assert!(
-            validate_node_for_sync(
-                pruning_enabled_but_not_started,
-                Network::Bitcoin,
-                Some(1_000)
-            )
-            .is_ok()
-        );
+        assert!(validate_node_for_sync(
+            pruning_enabled_but_not_started,
+            Network::Bitcoin,
+            Some(1_000)
+        )
+        .is_ok());
 
         let already_pruned = NodeStatus {
             pruned: true,
             prune_height: Some(800_000),
             ..ready
         };
-        assert!(validate_node_for_sync(already_pruned, Network::Bitcoin, Some(900_000))
-            .unwrap_err()
-            .contains("already pruned historical blocks"));
+        assert!(
+            validate_node_for_sync(already_pruned, Network::Bitcoin, Some(900_000))
+                .unwrap_err()
+                .contains("already pruned historical blocks")
+        );
     }
 
     #[test]
