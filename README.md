@@ -23,7 +23,8 @@ Stages 1–3 now have an implemented correctness path:
 - minimal `researcher doctor/sync/status` CLI for the real-node smoke test;
 - preflight rejection of wrong-network nodes and nodes that have already discarded Genesis-era block data;
 - bounded smoke sync during IBD once the requested historical height is locally validated;
-- pruning may be configured for the smoke test as long as actual historical pruning has not started yet.
+- pruning may be configured for the smoke test as long as actual historical pruning has not started yet;
+- manual-prune backfill mode that persists bounded batches before asking Core to delete old blocks.
 
 It intentionally does **not** yet:
 
@@ -58,7 +59,7 @@ crates/indexer-core/       deterministic UTXO state machine
 crates/bitcoin-source/     Bitcoin Core JSON-RPC block source
 crates/chain-indexer/      chain continuity + reorg coordination
 crates/storage-redb/       durable ACID UTXO/event/tip storage
-crates/researcher-cli/     bounded sync/status executable
+crates/researcher-cli/     doctor/sync/status/backfill executable
 docs/architecture.md       staged architecture and boundaries
 docs/data-model.md         raw event semantics
 docs/acceptance-criteria.md correctness/scaling gates
@@ -102,6 +103,26 @@ cargo run --locked -p researcher -- sync \
 
 The explicit target height is intentional: the first real-node run should validate a small deterministic range before any full-chain scan is attempted. See `docs/real-node-smoke-test.md` for the exact acceptance sequence.
 
+### Low-disk historical backfill
+
+For the complete historical dataset without retaining the whole raw blockchain, Bitcoin Core must use **manual pruning** (`prune=1`), not an automatic size target.
+
+```bash
+cargo run --locked -p researcher -- backfill \
+  --cookie-file /path/to/.cookie \
+  --db researcher.redb
+```
+
+Defaults:
+
+- commit at most 5,000 blocks per batch;
+- retain a 10,000-block safety lag before asking Core to prune;
+- poll Core every 5 seconds while caught up to the current IBD tip.
+
+Researcher refuses automatic pruning. It also refuses to continue if Core has already deleted the next historical block Researcher needs. If the backfill process is stopped, Core in manual-prune mode will stop deleting old blocks; stop Core as well if the backfill will remain offline for a long time to avoid unbounded disk growth.
+
+See `docs/manual-prune-backfill.md`.
+
 ## Next milestone
 
-Run `doctor` and then the bounded CLI against the local Bitcoin Core node while Genesis-era blocks are still retained. Only after that smoke test should profiling decide whether block-source optimization or Parquet export work is justified.
+Validate manual-prune backfill against the same local Bitcoin Core installation before allowing it to run through the full Initial Block Download.

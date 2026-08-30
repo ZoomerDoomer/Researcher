@@ -80,3 +80,31 @@ Those are later heuristic layers and must never be mixed into the raw event laye
 ## Timestamp boundary
 
 Raw Bitcoin block timestamps are miner supplied and not a monotonic global clock. `age_blocks` is the canonical ordering measure. Raw timestamp deltas are retained as data, not treated as exact elapsed time.
+
+
+## Stage 4: low-disk full-history acquisition
+
+A full archival Bitcoin Core node is not required permanently. For historical acquisition, Core can run with manual pruning (`prune=1`) while Researcher owns the prune watermark.
+
+```text
+Bitcoin Core validates/downloads blocks
+              |
+              v
+Researcher reads bounded batch
+              |
+              v
+redb ACID commit
+UTXOs + events + canonical tip
+              |
+              v
+pruneblockchain(committed_tip - safety_lag)
+              |
+              v
+Core may delete only older raw block files
+```
+
+The order is invariant: **commit first, prune second**.
+
+Automatic size-based pruning is intentionally rejected for this workflow. It would let Core advance its deletion watermark independently of Researcher and could create an unrecoverable historical gap. Manual pruning instead fails on the safe side: if Researcher stops, disk usage grows but historical data is not deleted.
+
+The default safety lag is 10,000 blocks and the default Researcher batch is 5,000 blocks. These are operational safety values rather than economic assumptions and can be changed later only with explicit CLI options.

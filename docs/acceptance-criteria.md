@@ -58,6 +58,20 @@ Must pass before full-chain production indexing:
 - bounded sync may use a node with pruning configured only while `prune_height == 0`, meaning Genesis-era block data has not yet been discarded;
 - sync refuses a node once historical pruning has advanced above Genesis, before the research database is mutated.
 
+## Gate D — low-disk historical backfill
+
+Must pass before unattended full-history acquisition:
+
+- Core must report pruning enabled with `automatic_pruning=false`;
+- automatic pruning is rejected because it can discard blocks before Researcher commits them;
+- the next block Researcher requires must be at or above Core's first retained block;
+- backfill commits a bounded batch before any prune RPC is attempted;
+- prune height is derived only from the durable Researcher tip;
+- a minimum 1,000-block lag is enforced, with 10,000 blocks as the default;
+- a stopped/crashed Researcher process cannot cause additional block deletion;
+- a resumed Researcher database may continue after older raw blocks were pruned if its next required block is still retained;
+- reaching the end of IBD plus matching the current Core tip terminates the historical backfill cleanly.
+
 ## Research gate
 
 No trading or behavioral claim may be promoted from raw events until it is tested out-of-sample and clearly labeled as observation, proxy, heuristic, or inference.
