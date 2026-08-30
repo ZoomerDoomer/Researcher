@@ -128,12 +128,7 @@ fn run_sync(config: &Config) -> Result<(), String> {
     let before = store.tip().map_err(|error| error.to_string())?;
     let next_needed = next_needed_height(before);
 
-    validate_node_for_sync(
-        status,
-        config.network,
-        config.target_height,
-        next_needed,
-    )?;
+    validate_node_for_sync(status, config.network, config.target_height, next_needed)?;
 
     let stats = match config.target_height {
         Some(target) => store
@@ -177,12 +172,8 @@ fn run_backfill(config: &Config) -> Result<(), String> {
                 .map_err(|error| error.to_string())?;
             let after = store.tip().map_err(|error| error.to_string())?;
 
-            let prune_result = maybe_prune_after_commit(
-                &source,
-                status,
-                after,
-                config.prune_lag_blocks,
-            )?;
+            let prune_result =
+                maybe_prune_after_commit(&source, status, after, config.prune_lag_blocks)?;
 
             println!(
                 "batch_target={} connected={} disconnected={} before={} after={} prune={}",
@@ -191,8 +182,7 @@ fn run_backfill(config: &Config) -> Result<(), String> {
                 stats.disconnected,
                 format_tip(before),
                 format_tip(after),
-                prune_result
-                    .map_or_else(|| "none".to_owned(), |height| height.to_string())
+                prune_result.map_or_else(|| "none".to_owned(), |height| height.to_string())
             );
         }
 
@@ -225,7 +215,8 @@ fn maybe_prune_after_commit(
     let Some(tip) = committed_tip else {
         return Ok(None);
     };
-    let Some(target) = planned_prune_height(tip.height, prune_lag_blocks, status.prune_height) else {
+    let Some(target) = planned_prune_height(tip.height, prune_lag_blocks, status.prune_height)
+    else {
         return Ok(None);
     };
 
@@ -673,14 +664,8 @@ mod tests {
     #[test]
     fn prune_plan_never_touches_uncommitted_or_recent_blocks() {
         assert_eq!(planned_prune_height(9_999, 10_000, Some(0)), None);
-        assert_eq!(
-            planned_prune_height(20_000, 10_000, Some(0)),
-            Some(10_000)
-        );
-        assert_eq!(
-            planned_prune_height(20_000, 10_000, Some(10_001)),
-            None
-        );
+        assert_eq!(planned_prune_height(20_000, 10_000, Some(0)), Some(10_000));
+        assert_eq!(planned_prune_height(20_000, 10_000, Some(10_001)), None);
     }
 
     #[test]
@@ -698,9 +683,11 @@ mod tests {
             blocks: 999,
             ..ready
         };
-        assert!(validate_node_for_sync(too_early, Network::Bitcoin, Some(1_000), 0)
-            .unwrap_err()
-            .contains("only validated through block 999"));
+        assert!(
+            validate_node_for_sync(too_early, Network::Bitcoin, Some(1_000), 0)
+                .unwrap_err()
+                .contains("only validated through block 999")
+        );
     }
 
     #[test]
