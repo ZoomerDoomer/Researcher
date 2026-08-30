@@ -1,0 +1,10 @@
+[package]
+name = "researcher"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+bitcoin.workspace = true
+researcher-bitcoin-source = { path = "../bitcoin-source" }
+researcher-storage-redb = { path = "../storage-redb" }
