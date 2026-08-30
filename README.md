@@ -20,7 +20,8 @@ Stages 1–3 now have an implemented correctness path:
 - atomic per-block event + UTXO + tip commits;
 - durable block rollback and post-restart reorg reconciliation;
 - bounded sync to an explicit target height;
-- minimal `researcher sync/status` CLI for the real-node smoke test.
+- minimal `researcher doctor/sync/status` CLI for the real-node smoke test;
+- preflight rejection of wrong-network, pruned, and still-IBD Core nodes.
 
 It intentionally does **not** yet:
 
@@ -76,6 +77,15 @@ cargo test --workspace --all-features
 cargo run -p researcher -- status --db researcher.redb
 ```
 
+### Check the Bitcoin Core node first
+
+```bash
+cargo run -p researcher -- doctor \
+  --cookie-file /path/to/.cookie
+```
+
+For a Genesis-to-tip research dataset the node must be on the configured network, fully synced, and non-pruned.
+
 ### Bounded Bitcoin Core smoke sync
 
 Cookie authentication:
@@ -91,4 +101,4 @@ The explicit target height is intentional: the first real-node run should valida
 
 ## Next milestone
 
-Pin the generated `Cargo.lock`, run the bounded CLI against a real local Bitcoin Core node, and only then decide whether profiling justifies block-source optimizations or Parquet export work.
+Run `doctor` and then the bounded CLI against a real local archival Bitcoin Core node. Only after that smoke test should profiling decide whether block-source optimization or Parquet export work is justified.

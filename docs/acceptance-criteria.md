@@ -51,7 +51,10 @@ Must pass before full-chain production indexing:
 - Parquet remains an export layer and cannot become more authoritative than the committed event store;
 - dependency/toolchain versions are pinned before the full mainnet run;
 - a bounded sync stops exactly at the requested canonical height and fails if the node has not reached that height;
-- the CLI cannot accidentally start a sync without explicit RPC authentication.
+- the CLI cannot accidentally start a sync without explicit RPC authentication;
+- sync refuses a Core node on the wrong network;
+- sync refuses a node still in Initial Block Download;
+- sync refuses a pruned node before the research database is mutated.
 
 ## Research gate
 

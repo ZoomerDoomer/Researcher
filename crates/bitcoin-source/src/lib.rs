@@ -15,6 +15,16 @@ pub enum SourceError {
     Backend(String),
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct NodeStatus {
+    pub network: bitcoin::Network,
+    pub blocks: u32,
+    pub headers: u32,
+    pub initial_block_download: bool,
+    pub pruned: bool,
+    pub prune_height: Option<u32>,
+}
+
 pub trait BlockSource {
     fn tip_height(&self) -> Result<u32, SourceError>;
     fn block_hash(&self, height: u32) -> Result<BlockHash, SourceError>;
@@ -48,12 +58,27 @@ impl BitcoinCoreRpcSource {
     pub fn client(&self) -> &Client {
         &self.client
     }
+
+    pub fn node_status(&self) -> Result<NodeStatus, SourceError> {
+        let info = self.client.get_blockchain_info()?;
+        Ok(NodeStatus {
+            network: info.chain,
+            blocks: height_to_u32(info.blocks)?,
+            headers: height_to_u32(info.headers)?,
+            initial_block_download: info.initial_block_download,
+            pruned: info.pruned,
+            prune_height: info.prune_height.map(height_to_u32).transpose()?,
+        })
+    }
+}
+
+fn height_to_u32(height: u64) -> Result<u32, SourceError> {
+    u32::try_from(height).map_err(|_| SourceError::HeightOverflow(height))
 }
 
 impl BlockSource for BitcoinCoreRpcSource {
     fn tip_height(&self) -> Result<u32, SourceError> {
-        let height = self.client.get_block_count()?;
-        u32::try_from(height).map_err(|_| SourceError::HeightOverflow(height))
+        height_to_u32(self.client.get_block_count()?)
     }
 
     fn block_hash(&self, height: u32) -> Result<BlockHash, SourceError> {
