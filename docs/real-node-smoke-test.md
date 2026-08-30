@@ -7,11 +7,11 @@ This is the first step that requires access to a real Bitcoin Core node.
 The node must:
 
 - be on the intended network;
-- have completed Initial Block Download;
-- be non-pruned so blocks are available from Genesis;
+- be non-pruned so historical blocks remain available from Genesis;
+- have validated at least through the requested smoke-test target height;
 - expose JSON-RPC locally or over a trusted connection.
 
-The `doctor` command checks the first three conditions before any research database is mutated.
+The `doctor` command checks these conditions before any research database is mutated. For a bounded smoke test, Initial Block Download may still be running as long as the requested target height is already locally validated.
 
 ## 1. Node preflight
 
@@ -19,7 +19,8 @@ Cookie auth example:
 
 ```bash
 cargo run --locked -p researcher -- doctor \
-  --cookie-file /path/to/.cookie
+  --cookie-file /path/to/.cookie \
+  --target-height 1000
 ```
 
 Expected final line:
@@ -28,7 +29,7 @@ Expected final line:
 sync_ready=true
 ```
 
-Do not continue if the command reports a network mismatch, Initial Block Download, or pruning.
+Do not continue if the command reports a network mismatch, pruning, or that the node has not yet validated through height 1000.
 
 ## 2. First bounded scan
 

@@ -21,7 +21,8 @@ Stages 1–3 now have an implemented correctness path:
 - durable block rollback and post-restart reorg reconciliation;
 - bounded sync to an explicit target height;
 - minimal `researcher doctor/sync/status` CLI for the real-node smoke test;
-- preflight rejection of wrong-network, pruned, and still-IBD Core nodes.
+- preflight rejection of wrong-network and pruned Core nodes;
+- bounded smoke sync during IBD once the requested historical height is locally validated.
 
 It intentionally does **not** yet:
 
@@ -80,18 +81,19 @@ cargo run -p researcher -- status --db researcher.redb
 ### Check the Bitcoin Core node first
 
 ```bash
-cargo run -p researcher -- doctor \
-  --cookie-file /path/to/.cookie
+cargo run --locked -p researcher -- doctor \
+  --cookie-file /path/to/.cookie \
+  --target-height 1000
 ```
 
-For a Genesis-to-tip research dataset the node must be on the configured network, fully synced, and non-pruned.
+For the first bounded smoke test the node does **not** need to be fully synced: it only needs to be non-pruned and to have validated at least the requested target height. A later unbounded Genesis-to-tip run still requires IBD to finish.
 
 ### Bounded Bitcoin Core smoke sync
 
 Cookie authentication:
 
 ```bash
-cargo run -p researcher -- sync \
+cargo run --locked -p researcher -- sync \
   --cookie-file /path/to/.cookie \
   --target-height 1000 \
   --db researcher.redb

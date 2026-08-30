@@ -25,7 +25,7 @@ RPC options (doctor/sync):
 
 Examples:
   researcher status --db researcher.redb
-  researcher doctor --cookie-file /path/to/.cookie
+  researcher doctor --cookie-file /path/to/.cookie --target-height 1000
   researcher sync --cookie-file /path/to/.cookie --target-height 1000
 "#;
 
@@ -85,13 +85,13 @@ fn run(args: Vec<String>) -> Result<(), String> {
             let source = build_source(&config)?;
             let status = source.node_status().map_err(|error| error.to_string())?;
             print_node_status(status);
-            validate_node_for_sync(status, config.network)?;
+            validate_node_for_sync(status, config.network, config.target_height)?;
             println!("sync_ready=true");
         }
         Command::Sync => {
             let source = build_source(&config)?;
             let status = source.node_status().map_err(|error| error.to_string())?;
-            validate_node_for_sync(status, config.network)?;
+            validate_node_for_sync(status, config.network, config.target_height)?;
 
             let store = DurableStore::open(&config.db_path, config.network)
                 .map_err(|error| error.to_string())?;
@@ -212,10 +212,6 @@ fn validate_config(config: &Config) -> Result<(), String> {
         return Ok(());
     }
 
-    if config.command == Command::Doctor && config.target_height.is_some() {
-        return Err("--target-height is only valid for sync".to_owned());
-    }
-
     let cookie = config.cookie_file.is_some();
     let user = config.rpc_user.is_some();
     let password = config.rpc_password.is_some();
@@ -235,7 +231,11 @@ fn validate_config(config: &Config) -> Result<(), String> {
     Ok(())
 }
 
-fn validate_node_for_sync(status: NodeStatus, expected_network: Network) -> Result<(), String> {
+fn validate_node_for_sync(
+    status: NodeStatus,
+    expected_network: Network,
+    target_height: Option<u32>,
+) -> Result<(), String> {
     if status.network != expected_network {
         return Err(format!(
             "Bitcoin Core network mismatch: expected {}, node reports {}",
@@ -243,20 +243,33 @@ fn validate_node_for_sync(status: NodeStatus, expected_network: Network) -> Resu
             network_name(status.network)
         ));
     }
-    if status.initial_block_download {
-        return Err(format!(
-            "Bitcoin Core is still in initial block download (blocks={}, headers={}); wait until IBD is complete",
-            status.blocks, status.headers
-        ));
-    }
     if status.pruned {
         return Err(format!(
-            "Bitcoin Core is pruned (prune_height={}); a Genesis-to-tip research scan requires an archival non-pruned node",
+            "Bitcoin Core is pruned (prune_height={}); this research index requires historical blocks from Genesis",
             status
                 .prune_height
                 .map_or_else(|| "unknown".to_owned(), |height| height.to_string())
         ));
     }
+
+    match target_height {
+        Some(target) => {
+            if status.blocks < target {
+                return Err(format!(
+                    "Bitcoin Core has only validated through block {}, but target height {} was requested",
+                    status.blocks, target
+                ));
+            }
+        }
+        None if status.initial_block_download => {
+            return Err(format!(
+                "Bitcoin Core is still in initial block download (blocks={}, headers={}); an unbounded sync requires IBD to finish",
+                status.blocks, status.headers
+            ));
+        }
+        None => {}
+    }
+
     Ok(())
 }
 
@@ -368,62 +381,61 @@ mod tests {
     }
 
     #[test]
-    fn doctor_accepts_rpc_auth_but_rejects_target_height() {
+    fn doctor_accepts_bounded_target_height() {
         let config = parse_args(vec![
-            "doctor".to_owned(),
-            "--cookie-file".to_owned(),
-            "/tmp/cookie".to_owned(),
-        ])
-        .unwrap();
-        assert_eq!(config.command, Command::Doctor);
-
-        let error = parse_args(vec![
             "doctor".to_owned(),
             "--cookie-file".to_owned(),
             "/tmp/cookie".to_owned(),
             "--target-height".to_owned(),
             "1".to_owned(),
         ])
-        .unwrap_err();
-        assert!(error.contains("only valid for sync"));
+        .unwrap();
+
+        assert_eq!(config.command, Command::Doctor);
+        assert_eq!(config.target_height, Some(1));
     }
 
     #[test]
-    fn node_preflight_rejects_wrong_network_ibd_and_pruned_nodes() {
+    fn node_preflight_allows_bounded_ibd_but_rejects_unavailable_or_unsafe_sources() {
         let ready = NodeStatus {
             network: Network::Bitcoin,
             blocks: 900_000,
-            headers: 900_000,
-            initial_block_download: false,
+            headers: 950_000,
+            initial_block_download: true,
             pruned: false,
             prune_height: None,
         };
-        assert!(validate_node_for_sync(ready, Network::Bitcoin).is_ok());
+
+        assert!(validate_node_for_sync(ready, Network::Bitcoin, Some(1_000)).is_ok());
+
+        let too_early = NodeStatus {
+            blocks: 999,
+            ..ready
+        };
+        assert!(validate_node_for_sync(too_early, Network::Bitcoin, Some(1_000))
+            .unwrap_err()
+            .contains("only validated through block 999"));
+
+        assert!(validate_node_for_sync(ready, Network::Bitcoin, None)
+            .unwrap_err()
+            .contains("unbounded sync requires IBD to finish"));
 
         let wrong_network = NodeStatus {
             network: Network::Testnet,
             ..ready
         };
-        assert!(validate_node_for_sync(wrong_network, Network::Bitcoin)
+        assert!(validate_node_for_sync(wrong_network, Network::Bitcoin, Some(1_000))
             .unwrap_err()
             .contains("network mismatch"));
-
-        let ibd = NodeStatus {
-            initial_block_download: true,
-            ..ready
-        };
-        assert!(validate_node_for_sync(ibd, Network::Bitcoin)
-            .unwrap_err()
-            .contains("initial block download"));
 
         let pruned = NodeStatus {
             pruned: true,
             prune_height: Some(800_000),
             ..ready
         };
-        assert!(validate_node_for_sync(pruned, Network::Bitcoin)
+        assert!(validate_node_for_sync(pruned, Network::Bitcoin, Some(900_000))
             .unwrap_err()
-            .contains("archival non-pruned"));
+            .contains("requires historical blocks from Genesis"));
     }
 
     #[test]

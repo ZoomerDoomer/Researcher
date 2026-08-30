@@ -53,7 +53,8 @@ Must pass before full-chain production indexing:
 - a bounded sync stops exactly at the requested canonical height and fails if the node has not reached that height;
 - the CLI cannot accidentally start a sync without explicit RPC authentication;
 - sync refuses a Core node on the wrong network;
-- sync refuses a node still in Initial Block Download;
+- bounded sync may run during Initial Block Download only if the node has already validated through the requested target height;
+- unbounded sync refuses a node still in Initial Block Download;
 - sync refuses a pruned node before the research database is mutated.
 
 ## Research gate
