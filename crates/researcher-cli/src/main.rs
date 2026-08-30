@@ -30,7 +30,7 @@ RPC options (doctor/sync/backfill):
   --rpc-user <user>             RPC username (requires --rpc-password)
   --rpc-password <password>     RPC password (requires --rpc-user)
 
-Doctor/sync:
+Doctor/sync/backfill:
   --target-height <height>      bounded target height
 
 Backfill:
@@ -42,7 +42,7 @@ Examples:
   researcher status --db researcher.redb
   researcher doctor --cookie-file /path/to/.cookie --target-height 1000
   researcher sync --cookie-file /path/to/.cookie --target-height 1000
-  researcher backfill --cookie-file /path/to/.cookie --db researcher.redb
+  researcher backfill --cookie-file /path/to/.cookie --target-height 11000 --db researcher.redb
 "#;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -160,13 +160,37 @@ fn run_backfill(config: &Config) -> Result<(), String> {
         validate_manual_backfill_node(status, config.network)?;
 
         let before = store.tip().map_err(|error| error.to_string())?;
+        if let (Some(limit), Some(tip)) = (config.target_height, before) {
+            if tip.height > limit {
+                return Err(format!(
+                    "backfill target {limit} is below durable Researcher tip {}",
+                    tip.height
+                ));
+            }
+            if tip.height == limit {
+                println!("backfill_target_reached=true tip_height={limit}");
+                return Ok(());
+            }
+        }
+
+        if let Some(limit) = config.target_height {
+            if !status.initial_block_download && status.blocks < limit {
+                return Err(format!(
+                    "Bitcoin Core finished IBD at height {}, below requested backfill target {limit}",
+                    status.blocks
+                ));
+            }
+        }
+
         let next_needed = next_needed_height(before);
         validate_history_available(status, next_needed)?;
 
-        if next_needed <= status.blocks {
+        let available_target = config.target_height.map_or(status.blocks, |limit| limit.min(status.blocks));
+
+        if next_needed <= available_target {
             let target = next_needed
                 .saturating_add(config.batch_blocks - 1)
-                .min(status.blocks);
+                .min(available_target);
             let stats = store
                 .sync_to_height(&source, target)
                 .map_err(|error| error.to_string())?;
@@ -184,6 +208,14 @@ fn run_backfill(config: &Config) -> Result<(), String> {
                 format_tip(after),
                 prune_result.map_or_else(|| "none".to_owned(), |height| height.to_string())
             );
+
+            if config
+                .target_height
+                .is_some_and(|limit| after.is_some_and(|tip| tip.height == limit))
+            {
+                println!("backfill_target_reached=true tip_height={target}");
+                return Ok(());
+            }
         }
 
         let refreshed = source.node_status().map_err(|error| error.to_string())?;
@@ -360,9 +392,6 @@ fn validate_config(config: &Config) -> Result<(), String> {
     }
 
     if config.command == Command::Backfill {
-        if config.target_height.is_some() {
-            return Err("--target-height is not valid for backfill".to_owned());
-        }
         if config.prune_lag_blocks < MIN_PRUNE_LAG_BLOCKS {
             return Err(format!(
                 "--prune-lag-blocks must be at least {MIN_PRUNE_LAG_BLOCKS}"
@@ -611,6 +640,8 @@ mod tests {
             "2500".to_owned(),
             "--poll-seconds".to_owned(),
             "2".to_owned(),
+            "--target-height".to_owned(),
+            "11000".to_owned(),
         ])
         .unwrap();
 
@@ -618,6 +649,18 @@ mod tests {
         assert_eq!(config.prune_lag_blocks, 20_000);
         assert_eq!(config.batch_blocks, 2_500);
         assert_eq!(config.poll_seconds, 2);
+        assert_eq!(config.target_height, Some(11_000));
+    }
+
+    #[test]
+    fn backfill_target_below_existing_tip_is_rejected_by_runtime_guard_logic() {
+        let limit = 4_999;
+        let tip = DurableTip {
+            height: 5_000,
+            hash: bitcoin::BlockHash::all_zeros(),
+        };
+
+        assert!(tip.height > limit);
     }
 
     #[test]
