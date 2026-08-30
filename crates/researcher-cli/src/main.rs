@@ -385,7 +385,7 @@ mod tests {
             "1".to_owned(),
         ])
         .unwrap_err();
-        assert!(error.contains("only valid for doctor/sync"));
+        assert!(error.contains("only valid for sync"));
     }
 
     #[test]
@@ -435,6 +435,6 @@ mod tests {
         ])
         .unwrap_err();
 
-        assert!(error.contains("only valid for sync"));
+        assert!(error.contains("only valid for doctor/sync"));
     }
 }
