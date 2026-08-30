@@ -160,17 +160,10 @@ fn run_backfill(config: &Config) -> Result<(), String> {
         validate_manual_backfill_node(status, config.network)?;
 
         let before = store.tip().map_err(|error| error.to_string())?;
-        if let (Some(limit), Some(tip)) = (config.target_height, before) {
-            if tip.height > limit {
-                return Err(format!(
-                    "backfill target {limit} is below durable Researcher tip {}",
-                    tip.height
-                ));
-            }
-            if tip.height == limit {
-                println!("backfill_target_reached=true tip_height={limit}");
-                return Ok(());
-            }
+        if backfill_target_reached(before.map(|tip| tip.height), config.target_height)? {
+            let limit = config.target_height.expect("target is set when reached");
+            println!("backfill_target_reached=true tip_height={limit}");
+            return Ok(());
         }
 
         if let Some(limit) = config.target_height {
@@ -236,6 +229,23 @@ fn run_backfill(config: &Config) -> Result<(), String> {
             thread::sleep(Duration::from_secs(config.poll_seconds));
         }
     }
+}
+
+fn backfill_target_reached(
+    durable_height: Option<u32>,
+    target_height: Option<u32>,
+) -> Result<bool, String> {
+    let (Some(durable), Some(target)) = (durable_height, target_height) else {
+        return Ok(false);
+    };
+
+    if durable > target {
+        return Err(format!(
+            "backfill target {target} is below durable Researcher tip {durable}"
+        ));
+    }
+
+    Ok(durable == target)
 }
 
 fn maybe_prune_after_commit(
@@ -653,14 +663,13 @@ mod tests {
     }
 
     #[test]
-    fn backfill_target_below_existing_tip_is_rejected_by_runtime_guard_logic() {
-        let limit = 4_999;
-        let tip = DurableTip {
-            height: 5_000,
-            hash: bitcoin::BlockHash::all_zeros(),
-        };
+    fn backfill_target_guard_is_monotonic() {
+        assert_eq!(backfill_target_reached(Some(5_000), Some(5_000)), Ok(true));
+        assert_eq!(backfill_target_reached(Some(4_999), Some(5_000)), Ok(false));
+        assert_eq!(backfill_target_reached(Some(5_000), None), Ok(false));
 
-        assert!(tip.height > limit);
+        let error = backfill_target_reached(Some(5_001), Some(5_000)).unwrap_err();
+        assert!(error.contains("below durable Researcher tip 5001"));
     }
 
     #[test]
