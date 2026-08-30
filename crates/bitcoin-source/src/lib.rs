@@ -21,8 +21,11 @@ pub struct NodeStatus {
     pub blocks: u32,
     pub headers: u32,
     pub initial_block_download: bool,
+    pub size_on_disk: u64,
     pub pruned: bool,
     pub prune_height: Option<u32>,
+    pub automatic_pruning: Option<bool>,
+    pub prune_target_size: Option<u64>,
 }
 
 pub trait BlockSource {
@@ -66,9 +69,23 @@ impl BitcoinCoreRpcSource {
             blocks: height_to_u32(info.blocks)?,
             headers: height_to_u32(info.headers)?,
             initial_block_download: info.initial_block_download,
+            size_on_disk: info.size_on_disk,
             pruned: info.pruned,
             prune_height: info.prune_height.map(height_to_u32).transpose()?,
+            automatic_pruning: info.automatic_pruning,
+            prune_target_size: info.prune_target_size,
         })
+    }
+
+    /// Requests manual pruning up to a height Bitcoin Core considers eligible.
+    ///
+    /// Callers must only use this after the corresponding research state is
+    /// durably committed. Bitcoin Core itself enforces its minimum keep window.
+    pub fn prune_blockchain(&self, height: u32) -> Result<u32, SourceError> {
+        let pruned_height: u64 = self
+            .client
+            .call("pruneblockchain", &[u64::from(height).into()])?;
+        height_to_u32(pruned_height)
     }
 }
 
