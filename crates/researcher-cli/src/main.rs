@@ -178,7 +178,9 @@ fn run_backfill(config: &Config) -> Result<(), String> {
         let next_needed = next_needed_height(before);
         validate_history_available(status, next_needed)?;
 
-        let available_target = config.target_height.map_or(status.blocks, |limit| limit.min(status.blocks));
+        let available_target = config
+            .target_height
+            .map_or(status.blocks, |limit| limit.min(status.blocks));
 
         if next_needed <= available_target {
             let target = next_needed
